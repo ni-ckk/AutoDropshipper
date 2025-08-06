@@ -7,10 +7,12 @@ from dotenv import load_dotenv
 from db_handler import DatabaseHandler
 
 load_dotenv()
+print("--- Starting Idealo Scraper ---")
 
 # --- Configuration ---
-SCRAPE_URL = os.getenv("SCRAPE_URL")
+SCRAPE_URL = os.getenv("SCRAPE_URL_IDEALO", "")
 MAX_PAGES_TO_SCRAPE = int(os.getenv("MAX_PAGES_TO_SCRAPE", 2))
+IS_HEADLESS = os.getenv("IS_HEADLESS_IDEALO", "False").lower() == "true"
 
 
 def handle_cookie_consent(sb):
@@ -92,7 +94,6 @@ def parse_product_card(card):
             raw_url = link_tag.get('href')
             if raw_url and not raw_url.startswith('https://'):
                 source_url = f"https://www.idealo.de{raw_url}"
-                print("Taken source url using Method 1")
             else:
                 source_url = raw_url
         
@@ -104,7 +105,6 @@ def parse_product_card(card):
                 product_id = wishlist_data.get('id')
                 if product_id:
                     source_url = f"https://www.idealo.de/preisvergleich/OffersOfProduct/{product_id}.html"
-                    print("Taken source url using Method 2")
 
         # price
         price_tag = card.select_one('div[class*="sr-detailedPriceInfo__price"]')
@@ -153,9 +153,9 @@ def parse_product_card(card):
 
 def scrape_idealo():
     all_scraped_products = []
-    print("🚀 Launching browser ...")
+    print("Launching browser ...")
 
-    with SB(uc=True, headless=True) as sb:
+    with SB(uc=True, headless=IS_HEADLESS) as sb:
         sb.open(SCRAPE_URL)
         time.sleep(2)
         
@@ -168,8 +168,6 @@ def scrape_idealo():
 
 
 if __name__ == "__main__":
-    print("--- Starting AutoDropshipper Scraper ---")
-    
     scraped_data = scrape_idealo()
 
     if scraped_data:

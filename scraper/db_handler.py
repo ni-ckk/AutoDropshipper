@@ -87,10 +87,56 @@ class DatabaseHandler:
                     )
 
             self.conn.commit()
-            print("✅ Database successfully updated.")
+            print("Database successfully updated.")
 
         except Exception as e:
-            print(f"❌ An error occurred during database processing: {e}")
+            print(f"An error occurred during database processing: {e}")
+            if self.conn:
+                self.conn.rollback()
+        finally:
+            cursor.close()
+            
+    def update_ebay_listings(self, product_id, ebay_listings):
+        """
+        deletes old eBay data for a product and inserts the new listings
+        """
+        if not self.conn:
+            print("Cannot process data, no database connection.")
+            return
+
+        cursor = self.conn.cursor()
+        try:
+            # remove old listings for this product
+            print(f"Deleting old eBay listings for product_id: {product_id}")
+            cursor.execute(
+                "DELETE FROM deal_board_ebaylisting WHERE product_id = %s;",
+                (product_id,)
+            )
+
+            # insert the new listings we just scraped
+            for listing in ebay_listings:
+                print(f"Inserting new eBay listing: {listing['title'][:40]}...")
+                cursor.execute(
+                    """
+                    INSERT INTO deal_board_ebaylisting
+                    (product_id, title, subtitle, price, source_url, image_url, scraped_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, NOW());
+                    """,
+                    (
+                        product_id,
+                        listing["title"],
+                        listing.get("subtitle"),
+                        listing["price"],
+                        listing["source_url"],
+                        listing["image_url"],
+                    )
+                )
+            
+            self.conn.commit()
+            print(f"Database successfully updated with eBay listings for product_id: {product_id}")
+
+        except Exception as e:
+            print(f"An error occurred during eBay listing processing: {e}")
             if self.conn:
                 self.conn.rollback()
         finally:

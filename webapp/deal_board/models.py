@@ -29,3 +29,18 @@ class PriceLog(models.Model):
     def __str__(self):
         return f"{self.product.name} - €{self.price} on {self.scraped_at.strftime('%Y-%m-%d')}"
 
+class EbayListing(models.Model):
+    """
+    stores a Ebay info of a scraped product that are similar
+    """
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="ebay_listings")
+    
+    title = models.CharField(max_length=255)
+    subtitle = models.CharField(max_length=255, null=True, blank=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    source_url = models.URLField(max_length=1024)
+    image_url = models.URLField(max_length=1024, null=True, blank=True)
+    scraped_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.title} for €{self.price}"
