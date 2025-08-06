@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>AutoDropshipper Deals</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            background-color: #f8f9fa;
+            color: #212529;
+        }
+
+        .header {
+            padding: 1.5em 2em;
+            background-color: #fff;
+            border-bottom: 1px solid #dee2e6;
+            margin-bottom: 2em;
+        }
+
+        h1 {
+            color: #343a40;
+            margin: 0;
+        }
+
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1.5em;
+            padding: 0 2em 2em;
+        }
+
+        .product-card {
+            background-color: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+
+        .product-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .product-image-container {
+            width: 100%;
+            padding-top: 75%; /* 4:3 Aspect Ratio */
+            position: relative;
+            background-color: #f1f3f5;
+        }
+
+        .product-image {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Use 'contain' to see the whole image */
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        
+        .product-info {
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1; /* Allows footer to stick to bottom */
+        }
+
+        .product-name {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #343a40;
+            margin-bottom: 0.5em;
+            flex-grow: 1; /* Pushes price/discount down */
+        }
+
+        .price-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 1em;
+        }
+
+        .product-price {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #212529;
+        }
+        
+        .product-discount {
+            background-color: #dc3545;
+            color: #fff;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
+        .product-footer {
+            margin-top: auto; /* Pushes this to the bottom */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
+
+        .product-footer a {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .product-footer a:hover {
+            text-decoration: underline;
+        }
+
+        .no-products {
+            grid-column: 1 / -1; /* Span all columns */
+            text-align: center;
+            padding: 4em;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>Active Deals</h1>
+    </div>
+
+    <div class="product-grid">
+        {% for product in products %}
+        <div class="product-card">
+            <div class="product-image-container">
+                <img src="{{ product.image_url }}" alt="{{ product.name }}" class="product-image">
+            </div>
+            <div class="product-info">
+                <div class="product-name">{{ product.name }}</div>
+                <div class="price-container">
+                    <span class="product-price">€{{ product.latest_price }}</span>
+                    {% if product.discount_percentage %}
+                        <span class="product-discount">-{{ product.discount_percentage }}%</span>
+                    {% endif %}
+                </div>
+                <div class="product-footer">
+                    <span>{{ product.updated_at|date:"Y-m-d H:i" }}</span>
+                    <a href="{{ product.source_url }}" target="_blank" rel="noopener noreferrer">View Product</a>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="no-products">
+            <h2>No active products found.</h2>
+            <p>Run the scraper to populate the database.</p>
+        </div>
+        {% endfor %}
+    </div>
+
+</body>
+</html>
