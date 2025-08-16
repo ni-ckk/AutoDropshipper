@@ -3,12 +3,14 @@
 .gitignore
 .dockerignore
 docker-compose.yml
-Dockerfile*
 
 # Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
+htmlcov/
+.coverage
+.tox/
 
 # Virtual Environments
 venv/
@@ -18,7 +20,19 @@ env/
 # Environment variables
 .env*
 
+# SeleniumBase logs and downloads
+downloaded_files/
+latest_logs/
+recordings/
+*.log
+*.png
+
+# Documentation and recordings
+docs/
+new_recording.py
+
 # IDE and OS files
 .vscode/
 .idea/
 .DS_Store
+Thumbs.db

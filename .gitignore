@@ -6,7 +6,6 @@ __pycache__/
 # Distribution / packaging
 build/
 dist/
-downloads/
 eggs/
 *.egg-info/
 *.egg
@@ -17,7 +16,6 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
-.pytest_cache/
 
 # Django
 db.sqlite3
@@ -25,17 +23,28 @@ db.sqlite3
 
 # Virtual Environments
 venv/
-.venv/
 env/
 
 # Environment variables
 .env*
 
+# Hidden folders (development/local)
+/.*
+!/.git
+
+# Documentation files
+*.md
+!README.md
+!docs/**/*.md
+
 # IDE and OS files
-.vscode/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Temporary files and folders
+temp/
+tmp/
 
 # SeleniumBase logs and downloads
 downloaded_files/

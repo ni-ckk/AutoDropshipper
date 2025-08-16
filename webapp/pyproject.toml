@@ -1,0 +1,155 @@
+[project]
+name = "autodropshipper-webapp"
+version = "0.5.0"
+description = "AutoDropshipper Django web application"
+requires-python = ">=3.10"
+dependencies = [
+    # Django and web framework
+    "django>=5.2.4",
+    "asgiref>=3.9.1",
+    
+    # Database
+    "psycopg2-binary>=2.9.10",
+    
+    # Data validation (for API integration)
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    
+    # Utilities
+    "python-dotenv>=1.1.1",
+    
+    # Testing dependencies  
+    "pytest>=8.4.1",
+    "pytest-django>=4.8.0",
+    "pytest-html>=4.0.2",
+    "pytest-metadata>=3.1.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["webapp"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "build", 
+    "dist",
+    "migrations",
+    "static",
+    "media",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "N",    # pep8-naming
+    "DJ",   # flake8-django
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "B904",  # raise without from inside except
+    "DJ01",  # django model field shouldn't use null=True
+]
+
+[tool.ruff.lint.isort]
+known-third-party = ["django", "pydantic"]
+known-first-party = ["deal_board"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.10" 
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_any_generics = true
+check_untyped_defs = true
+no_implicit_reexport = true
+disallow_untyped_defs = false  # Django models can be untyped
+
+[[tool.mypy.overrides]]
+module = [
+    "django.*",
+    "pydantic.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+testpaths = ["webapp"]
+python_files = ["test_*.py", "*_test.py"] 
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+DJANGO_SETTINGS_MODULE = "webapp.settings"
+addopts = [
+    "-ra",
+    "--strict-markers", 
+    "--strict-config",
+    "--reuse-db",
+    "--cov=webapp",
+    "--cov-branch",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=html",
+    "--cov-fail-under=75",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",  
+    "unit: marks tests as unit tests",
+]
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+    "ignore::django.utils.deprecation.RemovedInDjango50Warning",
+]
+
+[tool.coverage.run]
+source = ["webapp"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/migrations/*",
+    "*/settings/*",
+    "manage.py",
+    "*/wsgi.py",
+    "*/asgi.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError", 
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.django-stubs]
+django_settings_module = "webapp.settings"

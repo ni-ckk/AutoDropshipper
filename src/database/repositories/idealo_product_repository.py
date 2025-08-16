@@ -1,0 +1,138 @@
+"""
+Idealo product-specific queries, upserts, and price history.
+"""
+
+from typing import Any, Dict, List, Optional
+
+from src.shared.logging.log_setup import get_logger
+
+from .base_repository import BaseRepository
+
+logger = get_logger(__name__)
+
+
+class IdealoProductRepository(BaseRepository):
+    """Repository for Idealo product data operations."""
+    
+    def deactivate_all_products(self) -> None:
+        """Mark all products as inactive before processing new data."""
+        query = "UPDATE deal_board_product SET is_active = FALSE;"
+        self._execute_query(query)
+        logger.info("all_products_deactivated")
+    
+    def find_by_source_url(self, source_url: str) -> Optional[tuple]:
+        """
+        Find product by source URL.
+        
+        Args:
+            source_url: Product URL from Idealo
+            
+        Returns:
+            Tuple of (id, latest_price) or None if not found
+        """
+        query = "SELECT id, price FROM deal_board_product WHERE source_url = %s;"
+        results = self._execute_query(query, (source_url,))
+        return results[0] if results else None
+    
+    def update_product(self, product_id: int, price: Any, discount: int) -> None:
+        """
+        Update existing product with new price and discount.
+        
+        Args:
+            product_id: Product ID to update
+            price: New price value
+            discount: New discount percentage (now required)
+        """
+        query = """
+            UPDATE deal_board_product
+            SET price = %s, discount = %s, is_active = TRUE, updated_at = NOW()
+            WHERE id = %s;
+        """
+        self._execute_query(query, (price, discount, product_id))
+        logger.debug("product_updated", product_id=product_id)
+    
+    def insert_product(self, product_data: Dict[str, Any]) -> Optional[int]:
+        """
+        Insert new product into database (matching Django model fields).
+        
+        Args:
+            product_data: Dictionary with product information
+            
+        Returns:
+            New product ID or None if insertion failed
+        """
+        # match exact Django model fields with updated field names
+        query = """
+            INSERT INTO deal_board_product 
+            (name, source_url, image_url, price, discount, is_active, category, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, TRUE, %s, NOW(), NOW()) RETURNING id;
+        """
+        params = (
+            product_data["name"],
+            product_data["source_url"],
+            product_data["image_url"],
+            product_data["price"],
+            product_data["discount"],  # now required field
+            product_data.get("category", "Unknown")  # use default if not provided
+        )
+        
+        product_id = self._execute_with_return(query, params)
+        if product_id:
+            logger.debug("product_inserted", product_id=product_id, name=product_data["name"][:30])
+        return product_id
+    
+    def add_price_log(self, product_id: int, price: Any) -> None:
+        """
+        Add price history entry for product.
+        
+        Args:
+            product_id: Product ID
+            price: Price value to log
+        """
+        query = """
+            INSERT INTO deal_board_pricelog (product_id, price, scraped_at)
+            VALUES (%s, %s, NOW());
+        """
+        self._execute_query(query, (product_id, price))
+        logger.debug("price_log_added", product_id=product_id)
+    
+    def process_scraped_products(self, products_to_process: List[Dict[str, Any]]) -> None:
+        """
+        Process and store list of scraped products (preserving original logic).
+        
+        Args:
+            products_to_process: List of product dictionaries
+        """
+        if not products_to_process:
+            logger.warning("no_products_to_process")
+            return
+        
+        try:
+            # deactivate all products first (original logic)
+            self.deactivate_all_products()
+            
+            # process each product (original logic preserved)
+            for product in products_to_process:
+                existing_product = self.find_by_source_url(product["source_url"])
+                
+                product_id = None
+                if existing_product:
+                    # update existing product
+                    product_id, old_price = existing_product
+                    self.update_product(product_id, product["price"], product["discount"])
+                else:
+                    # insert new product
+                    product_id = self.insert_product(product)
+                
+                # add price history entry (original logic)
+                if product_id:
+                    self.add_price_log(product_id, product["price"])
+            
+            # commit all changes
+            self.commit()
+            logger.info("database_update_complete", products_processed=len(products_to_process))
+            
+        except Exception as e:
+            logger.error("database_processing_error", error=str(e), exc_info=True)
+            self.rollback()
+            raise

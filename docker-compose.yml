@@ -13,10 +13,12 @@ services:
 
   # The Django Web App Service
   webapp:
-    build: ./webapp
-    command: python manage.py runserver 0.0.0.0:8000
+    build: 
+      context: ./webapp
+      dockerfile: Dockerfile
+    command: uv run python webapp/manage.py runserver 0.0.0.0:8000
     volumes:
-      - ./webapp:/app
+      - ./webapp:/app/webapp
     ports:
       - "8000:8000"
     environment:
@@ -29,8 +31,10 @@ services:
       - db
 
   # The Scraper Service
-  scraper:
-    build: ./scraper
+  scrapers:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
     env_file: ".env"
     environment:
       - POSTGRES_NAME=${POSTGRES_DB}
@@ -39,6 +43,20 @@ services:
       - POSTGRES_HOST=db
     depends_on:
       - db
+    volumes:
+      # Mount source for development (optional)
+      - ./src:/home/dockie/src:ro
+    # Default command shows help - override to run specific scrapers
+    command: ["uv", "run", "python", "-m", "src.scrapers.main", "--help"]
+
+  # Quick test aliases for development
+  test-idealo:
+    extends: scrapers
+    command: ["uv", "run", "python", "-m", "src.scrapers.main", "--platform", "idealo"]
+    
+  test-ebay:
+    extends: scrapers  
+    command: ["uv", "run", "python", "-m", "src.scrapers.main", "--platform", "ebay", "--query", "gaming laptop"]
 
 volumes:
   postgres_data:
