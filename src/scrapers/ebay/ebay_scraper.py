@@ -185,16 +185,18 @@ class EbayScraper:
     def _get_search_result_elements(self, sb):
         """Get search result elements from the page."""
         try:
-            # get all search result items
-            elements = sb.find_elements("css selector", "ul.srp-results > li")
+            soup = sb.get_beautiful_soup()
             
-            # filter out non-product elements (ads, separators, etc.)
+            # get all list items from search results
+            list_items = soup.select('ul.srp-results > li')
+            
+            # filter to only get items with s-item class (actual product listings)
             product_elements = []
-            for element in elements:
-                data_view = element.get_attribute("data-view")
-                if data_view and "item" in data_view.lower():
-                    product_elements.append(element)
-                    
+            for item in list_items:
+                class_list = item.get('class')
+                if isinstance(class_list, list) and 's-item' in class_list:
+                    product_elements.append(item)
+            
             return product_elements
             
         except Exception as e:
