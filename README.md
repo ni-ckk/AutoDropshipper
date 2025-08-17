@@ -13,7 +13,7 @@ An automated dropshipping application that scrapes product data from idealo.de, 
 
 ## Tech Stack
 
-- **Python 3.13**
+- **Python 3.10+**
 - **SeleniumBase** 
 - **PostgreSQL**
 - **Django 5.2**
@@ -53,27 +53,27 @@ docker-compose run webapp uv run python webapp/manage.py migrate
 
 **Run Idealo Scraper**:
 ```bash
-docker-compose run scraper uv run python -m src.scrapers.main --platform idealo --query "gaming laptop"
+docker-compose run scrapers uv run python -m src.scrapers.main --platform idealo --query "gaming laptop"
 ```
 
 **Run eBay Scraper**:
 ```bash  
-docker-compose run scraper uv run python -m src.scrapers.main --platform ebay --query "gaming laptop"
+docker-compose run scrapers uv run python -m src.scrapers.main --platform ebay --query "gaming laptop"
 ```
 
 **Run Full Analysis** (Idealo + eBay + Profitability):
 ```bash
-docker-compose run scraper uv run python -m src.scrapers.main --platform both --query "gaming laptop" --min-profit 25
+docker-compose run scrapers uv run python -m src.scrapers.main --platform both --query "gaming laptop" --min-profit 25
 ```
 
 **Save Results to Database**:
 ```bash
-docker-compose run scraper uv run python -m src.scrapers.main --platform idealo --query "laptop" --save
+docker-compose run scrapers uv run python -m src.scrapers.main --platform idealo --query "laptop" --save
 ```
 
 **View Scraper Help**:
 ```bash
-docker-compose run scraper
+docker-compose run scrapers
 ```
 
 ### Local Development (Alternative)
@@ -140,7 +140,6 @@ AutoDropshipper/
 │   ├── pyproject.toml          # Django dependencies
 │   ├── deal_board/             # Main app for product management
 │   └── manage.py
-├── OBSOLETE.scraper/            # Legacy reference files (do not use)
 ├── docker-compose.yml           # Container orchestration
 └── docs/                        # Documentation
 ```
@@ -152,7 +151,7 @@ AutoDropshipper/
 **Run Scraper Tests**:
 ```bash
 # In Docker
-docker-compose run scraper uv run pytest src/
+docker-compose run scrapers uv run pytest src/
 
 # Locally
 cd src && uv run pytest

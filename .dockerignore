@@ -31,6 +31,9 @@ recordings/
 docs/
 new_recording.py
 
+# Temp stuff
+temp/
+
 # IDE and OS files
 .vscode/
 .idea/
