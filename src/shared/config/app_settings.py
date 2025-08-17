@@ -58,6 +58,7 @@ class AppConfig(BaseSettings):
     DEBUG: bool = Field(default=False)
     SECRET_KEY: str = Field(default="django-insecure-dev-key", description="Django secret key")
     PROFIT_PERCENTAGE_BASELINE: float = Field(default=25.0, description="Baseline profit percentage for comparisons")
+    EBAY_CHECK_THRESHOLD_DAYS: int = Field(default=14, description="Days after which eBay data is considered stale")
     
     @property
     def database(self) -> DatabaseConfig:

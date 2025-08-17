@@ -81,93 +81,58 @@ def run_ebay_scraper(search_query: str, max_results: int = 20) -> List[EbayListi
         return []
 
 
-def run_full_comparison(min_profit_margin: Decimal = Decimal("50.0")) -> None:
+def run_full_production_flow() -> None:
     """
-    Run full product comparison workflow: Idealo → eBay → Profitability Analysis.
+    Run full production flow: Idealo → DB → eBay checks for each product → DB.
     
-    Uses the URL from SCRAPE_URL_IDEALO for Idealo scraping.
-    
-    Args:
-        min_profit_margin: Minimum profit margin percentage required
+    This is the main production workflow that:
+    1. Scrapes Idealo products
+    2. Saves them to database
+    3. Automatically checks eBay for new/stale products
+    4. Saves eBay listings to database
     """
     print("=" * 60)
-    print("  AutoDropshipper Full Comparison")
-    print("  Using Idealo URL from config")
-    print(f"  Min Profit Margin: {min_profit_margin}%")
+    print("  AutoDropshipper Production Flow")
+    print("  Idealo → Database → eBay Checks → Database")
     print("=" * 60)
     
     # Step 1: Scrape Idealo products
-    print("Step 1: Scraping Idealo products...")
-    idealo_products = run_idealo_scraper()
+    print("\nStep 1: Scraping Idealo products...")
+    products = run_idealo_scraper()
     
-    if not idealo_products:
+    if not products:
         print("ERROR: No Idealo products found. Stopping.")
         return
     
-    # derive search query from first product or category
-    if idealo_products:
-        # use the category from first product for eBay search
-        search_query = idealo_products[0].category if idealo_products[0].category else "electronics"
-    else:
-        search_query = "electronics"  # fallback
-        
-    # Step 2: Scrape eBay listings  
-    print("Step 2: Scraping eBay listings for comparison...")
-    ebay_listings = run_ebay_scraper(search_query, max_results=20)
+    print(f"SUCCESS: Found {len(products)} Idealo products")
     
-    if not ebay_listings:
-        print("ERROR: No eBay listings found. Stopping.")
-        return
+    # Step 2: Save to database and run eBay checks
+    print("\nStep 2: Saving to database and checking eBay...")
+    save_to_database(products, [])
     
-    # Step 3: Analyze profitability
-    print("Step 3: Analyzing profitability...")
-    profitable_products = []
-    
-    for product in idealo_products:
-        comparison = ProductComparison(
-            idealo_product=product,
-            ebay_listings=ebay_listings
-        )
-        
-        comparison.calculate_profitability(min_profit_margin=min_profit_margin)
-        
-        if comparison.is_profitable:
-            profitable_products.append(comparison)
-            print(
-                f"✓ {product.name[:50]}... - "
-                f"€{product.price} → €{comparison.min_ebay_price} "
-                f"({comparison.profit_percentage:.1f}% margin)"
-            )
-    
-    # Display results
-    if profitable_products:
-        print("=" * 60)
-        print("  Analysis Complete")
-        print(f"  Found {len(profitable_products)} profitable products!")
-        print(f"  Total Idealo products analyzed: {len(idealo_products)}")
-        print(f"  Total eBay listings found: {len(ebay_listings)}")
-        print("=" * 60)
-    else:
-        print("=" * 60)
-        print("  Analysis Complete")
-        print("  No profitable products found.")
-        print("  Try lowering the minimum profit margin or different search terms.")
-        print("=" * 60)
+    print("\n" + "=" * 60)
+    print("  Production Flow Complete")
+    print("=" * 60)
 
 
 def save_to_database(products: List[IdealoProduct], listings: List[EbayListing]) -> None:
     """
-    Save scraped data to database.
+    Save scraped data to database and check eBay for new/stale products.
     
     Args:
         products: Idealo products to save
         listings: eBay listings to save
     """
     from src.database.handlers.connection_handler import ConnectionHandler
+    from src.shared.config.app_settings import get_app_config
+    
+    config = get_app_config()
     
     try:
         with ConnectionHandler() as conn:
-            # Save Idealo products
+            needs_ebay_check = []
+            
+            # Save Idealo products and track which need eBay checks
             if products:
                 idealo_repo = IdealoProductRepository(conn)
                 products_data = [
@@ -181,10 +146,55 @@ def save_to_database(products: List[IdealoProduct], listings: List[EbayListing])
                     }
                     for p in products
                 ]
-                idealo_repo.process_scraped_products(products_data)
+                
+                # process products and get list of those needing eBay checks
+                needs_ebay_check = idealo_repo.process_scraped_products(
+                    products_data,
+                    ebay_check_threshold_days=config.EBAY_CHECK_THRESHOLD_DAYS
+                )
                 print(f"SUCCESS: Saved {len(products)} Idealo products to database")
+                
+                # run eBay checks for new and stale products
+                if needs_ebay_check:
+                    print(f"\nChecking eBay for {len(needs_ebay_check)} products...")
+                    ebay_repo = EbayListingRepository(conn)
+                    
+                    for idx, product_info in enumerate(needs_ebay_check, 1):
+                        print(f"[{idx}/{len(needs_ebay_check)}] Checking eBay for: {product_info['name'][:50]}... ({product_info['type']})")
+                        
+                        # use existing eBay scraper to search for this product
+                        ebay_listings = run_ebay_scraper(
+                            search_query=product_info['name'],
+                            max_results=10  # limit results per product
+                        )
+                        
+                        if ebay_listings:
+                            # convert EbayListing objects to dictionaries
+                            listings_data = [
+                                {
+                                    "title": l.title,
+                                    "subtitle": l.subtitle if hasattr(l, 'subtitle') else None,
+                                    "price": l.price,
+                                    "source_url": str(l.source_url),
+                                    "image_url": str(l.image_url) if l.image_url else None,
+                                }
+                                for l in ebay_listings
+                            ]
+                            
+                            # update listings for this product
+                            ebay_repo.update_listings_for_product(
+                                product_info['product_id'],
+                                listings_data
+                            )
+                            print(f"  → Found {len(ebay_listings)} eBay listings")
+                        else:
+                            # still update timestamp even if no listings found
+                            idealo_repo.update_last_ebay_check(product_info['product_id'])
+                            print(f"  → No eBay listings found")
+                    
+                    print(f"SUCCESS: Completed eBay checks for {len(needs_ebay_check)} products")
             
-            # Save eBay listings
+            # Save standalone eBay listings (original behavior)
             if listings:
                 ebay_repo = EbayListingRepository(conn)
                 for listing in listings:
@@ -206,51 +216,28 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run Idealo scraper (uses URL from SCRAPE_URL_IDEALO and MAX_PAGES_TO_SCRAPE from .env)
-  python -m src.scrapers.main --platform idealo --save
+  # Test Idealo scraper (no database)
+  python -m src.scrapers.main --scope idealo
   
-  # Run eBay scraper (requires query)  
-  python -m src.scrapers.main --platform ebay --query "gaming laptop" --max-results 30
+  # Test eBay scraper (no database)  
+  python -m src.scrapers.main --scope ebay --query "gaming laptop"
   
-  # Run full comparison analysis (Idealo URL + eBay search)
-  python -m src.scrapers.main --platform both --min-profit 25
-  
-  # Save Idealo results to database
-  python -m src.scrapers.main --platform idealo --save
+  # Run full production flow (Idealo → DB → eBay checks → DB)
+  python -m src.scrapers.main --scope full
         """
     )
     
     parser.add_argument(
-        "--platform",
-        choices=["idealo", "ebay", "both"],
+        "--scope",
+        choices=["idealo", "ebay", "full"],
         required=True,
-        help="Which platform to scrape"
+        help="Scraping scope: 'idealo' (test only), 'ebay' (test only), or 'full' (production with DB)"
     )
     
     parser.add_argument(
         "--query",
         required=False,
-        help="Product search query (only for eBay, Idealo uses URL from config)"
-    )
-    
-    parser.add_argument(
-        "--max-results",
-        type=int,
-        default=20,
-        help="Maximum number of results to scrape (only for eBay, default: 20)"
-    )
-    
-    parser.add_argument(
-        "--min-profit",
-        type=float,
-        default=50.0,
-        help="Minimum profit margin percentage for 'both' mode (default: 50.0)"
-    )
-    
-    parser.add_argument(
-        "--save",
-        action="store_true",
-        help="Save results to database"
+        help="Product search query (required for eBay scope)"
     )
     
     parser.add_argument(
@@ -266,12 +253,18 @@ Examples:
         # reconfigure with DEBUG level
         setup_logging(log_level="DEBUG")
     
+    # Get config for eBay scraping
+    from src.shared.config.app_settings import get_app_config
+    config = get_app_config()
+    
     # Welcome message
-    subtitle = f"Platform: {args.platform.upper()}"
-    if args.platform == "ebay" and args.query:
+    subtitle = f"Scope: {args.scope.upper()}"
+    if args.scope == "ebay" and args.query:
         subtitle += f" | Query: '{args.query}'"
-    elif args.platform == "idealo":
+    elif args.scope == "idealo":
         subtitle += " | Using URL from config"
+    elif args.scope == "full":
+        subtitle += " | Production Flow"
     
     print("=" * 60)
     print("  AutoDropshipper Scraper")
@@ -279,29 +272,37 @@ Examples:
     print("=" * 60)
     
     try:
-        products: List[IdealoProduct] = []
-        listings: List[EbayListing] = []
-        
-        if args.platform == "idealo":
+        if args.scope == "idealo":
+            # Test mode: just scrape and log
             products = run_idealo_scraper()
-            print(f"SUCCESS: Found {len(products)} Idealo products")
+            print(f"\nSUCCESS: Found {len(products)} Idealo products")
+            if products:
+                print("\nSample products:")
+                for i, product in enumerate(products[:5], 1):
+                    print(f"  {i}. {product.name[:60]}... - €{product.price}")
             
-        elif args.platform == "ebay":
+        elif args.scope == "ebay":
+            # Test mode: just scrape and log
             if not args.query:
-                print("ERROR: --query is required for eBay scraping")
+                print("ERROR: --query is required for eBay scope")
                 sys.exit(1)
-            listings = run_ebay_scraper(args.query, args.max_results)  
-            print(f"SUCCESS: Found {len(listings)} eBay listings")
             
-        elif args.platform == "both":
-            run_full_comparison(Decimal(str(args.min_profit)))
-            return  # Full comparison handles its own output
-        
-        # Save to database if requested
-        if args.save and (products or listings):
-            save_to_database(products, listings)
+            # Calculate max results from config
+            max_results = config.ebay.MAX_BESTMATCH_ITEMS + config.ebay.MAX_LEASTMATCH_ITEMS
+            listings = run_ebay_scraper(args.query, max_results)
             
-        print("SUCCESS: Scraping completed successfully!")
+            print(f"\nSUCCESS: Found {len(listings)} eBay listings")
+            if listings:
+                print("\nSample listings:")
+                for i, listing in enumerate(listings[:5], 1):
+                    print(f"  {i}. {listing.title[:60]}... - €{listing.price}")
+            
+        elif args.scope == "full":
+            # Production mode: full flow with database
+            run_full_production_flow()
+            return  # Full flow handles its own output
+            
+        print("\nScraping completed successfully!")
         
     except KeyboardInterrupt:
         print("\nWARNING: Scraping interrupted by user")

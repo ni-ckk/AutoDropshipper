@@ -55,3 +55,7 @@ new_recording.py
 
 # Any saved debug images by seleniumbase
 *.png
+
+# Local test scripts
+test_idealo_local.py
+test_ebay_local.py

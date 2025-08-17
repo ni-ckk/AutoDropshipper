@@ -52,11 +52,15 @@ services:
   # Quick test aliases for development
   test-idealo:
     extends: scrapers
-    command: ["uv", "run", "python", "-m", "src.scrapers.main", "--platform", "idealo"]
+    command: ["uv", "run", "python", "-m", "src.scrapers.main", "--scope", "idealo"]
     
   test-ebay:
     extends: scrapers  
-    command: ["uv", "run", "python", "-m", "src.scrapers.main", "--platform", "ebay", "--query", "gaming laptop"]
+    command: ["uv", "run", "python", "-m", "src.scrapers.main", "--scope", "ebay", "--query", "PS5 Pro"]
+  
+  production:
+    extends: scrapers
+    command: ["uv", "run", "python", "-m", "src.scrapers.main", "--scope", "full"]
 
 volumes:
   postgres_data:

@@ -81,7 +81,7 @@ class EbayListingRepository(BaseRepository):
     
     def update_listings_for_product(self, product_id: int, ebay_listings: List[Dict[str, Any]]) -> None:
         """
-        Replace all eBay listings for a product (original logic preserved).
+        Replace all eBay listings for a product and update last_ebay_check timestamp.
         
         Args:
             product_id: Product ID to update
@@ -94,6 +94,14 @@ class EbayListingRepository(BaseRepository):
             # insert new listings
             for listing in ebay_listings:
                 self.insert_listing(product_id, listing)
+            
+            # update last_ebay_check timestamp
+            update_timestamp_query = """
+                UPDATE deal_board_product
+                SET last_ebay_check = NOW()
+                WHERE id = %s;
+            """
+            self._execute_query(update_timestamp_query, (product_id,))
             
             logger.info(
                 "ebay_listings_updated",

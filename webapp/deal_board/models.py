@@ -11,6 +11,7 @@ class Product(models.Model):
     image_url = models.URLField(max_length=1024, null=True, blank=True, help_text="URL of the product's image.")
     is_active = models.BooleanField(default=True, help_text="Is the product currently available on the source site?")
     category = models.CharField(max_length=100, default="Unknown", help_text="Product category (defaults to 'Unknown' if extraction fails).")
+    last_ebay_check = models.DateTimeField(null=True, blank=True, help_text="Last time eBay listings were checked for this product.")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

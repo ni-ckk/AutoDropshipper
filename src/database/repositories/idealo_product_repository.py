@@ -2,6 +2,7 @@
 Idealo product-specific queries, upserts, and price history.
 """
 
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from src.shared.logging.log_setup import get_logger
@@ -28,9 +29,9 @@ class IdealoProductRepository(BaseRepository):
             source_url: Product URL from Idealo
             
         Returns:
-            Tuple of (id, latest_price) or None if not found
+            Tuple of (id, latest_price, last_ebay_check) or None if not found
         """
-        query = "SELECT id, price FROM deal_board_product WHERE source_url = %s;"
+        query = "SELECT id, price, last_ebay_check FROM deal_board_product WHERE source_url = %s;"
         results = self._execute_query(query, (source_url,))
         return results[0] if results else None
     
@@ -96,33 +97,80 @@ class IdealoProductRepository(BaseRepository):
         self._execute_query(query, (product_id, price))
         logger.debug("price_log_added", product_id=product_id)
     
-    def process_scraped_products(self, products_to_process: List[Dict[str, Any]]) -> None:
+    def update_last_ebay_check(self, product_id: int) -> None:
         """
-        Process and store list of scraped products (preserving original logic).
+        Update the last_ebay_check timestamp for a product.
+        
+        Args:
+            product_id: Product ID to update
+        """
+        query = """
+            UPDATE deal_board_product
+            SET last_ebay_check = NOW()
+            WHERE id = %s;
+        """
+        self._execute_query(query, (product_id,))
+        logger.debug("last_ebay_check_updated", product_id=product_id)
+    
+    def process_scraped_products(self, products_to_process: List[Dict[str, Any]], ebay_check_threshold_days: int = 14) -> List[Dict[str, Any]]:
+        """
+        Process and store list of scraped products, tracking which need eBay checks.
         
         Args:
             products_to_process: List of product dictionaries
+            ebay_check_threshold_days: Days after which eBay data is considered stale
+            
+        Returns:
+            List of products needing eBay check with product_id, name, and type
         """
         if not products_to_process:
             logger.warning("no_products_to_process")
-            return
+            return []
+        
+        needs_ebay_check = []
         
         try:
             # deactivate all products first (original logic)
             self.deactivate_all_products()
             
-            # process each product (original logic preserved)
+            # process each product
             for product in products_to_process:
                 existing_product = self.find_by_source_url(product["source_url"])
                 
                 product_id = None
                 if existing_product:
                     # update existing product
-                    product_id, old_price = existing_product
+                    product_id, old_price, last_ebay_check = existing_product
                     self.update_product(product_id, product["price"], product["discount"])
+                    
+                    # check if eBay data is stale
+                    if last_ebay_check is None:
+                        needs_ebay_check.append({
+                            "product_id": product_id,
+                            "name": product["name"],
+                            "type": "returning_never_checked"
+                        })
+                        logger.debug("ebay_check_needed", product_id=product_id, reason="never_checked")
+                    else:
+                        days_since_check = (datetime.now() - last_ebay_check).days
+                        if days_since_check > ebay_check_threshold_days:
+                            needs_ebay_check.append({
+                                "product_id": product_id,
+                                "name": product["name"],
+                                "type": "returning_stale"
+                            })
+                            logger.debug("ebay_check_needed", product_id=product_id, days_since=days_since_check)
                 else:
                     # insert new product
                     product_id = self.insert_product(product)
+                    # new products always need eBay check
+                    if product_id:
+                        needs_ebay_check.append({
+                            "product_id": product_id,
+                            "name": product["name"],
+                            "type": "new"
+                        })
+                        logger.debug("ebay_check_needed", product_id=product_id, reason="new_product")
                 
                 # add price history entry (original logic)
                 if product_id:
@@ -130,7 +178,13 @@ class IdealoProductRepository(BaseRepository):
             
             # commit all changes
             self.commit()
-            logger.info("database_update_complete", products_processed=len(products_to_process))
+            logger.info(
+                "database_update_complete", 
+                products_processed=len(products_to_process),
+                needs_ebay_check=len(needs_ebay_check)
+            )
+            
+            return needs_ebay_check
             
         except Exception as e:
             logger.error("database_processing_error", error=str(e), exc_info=True)
