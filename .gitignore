@@ -25,6 +25,9 @@ db.sqlite3
 venv/
 env/
 
+# References folder
+refs/
+
 # Environment variables
 .env*
 
