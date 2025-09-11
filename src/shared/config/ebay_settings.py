@@ -29,7 +29,7 @@ class EbayScraperConfig(BaseSettings):
     IS_HEADLESS_EBAY: bool = Field(default=True)
     PAGE_LOAD_TIMEOUT: int = Field(default=30, ge=5, le=120)
     MAX_BESTMATCH_ITEMS: int = Field(default=10, ge=1, le=50)
-    MAX_LEASTMATCH_ITEMS: int = Field(default=3, ge=1, le=20)
+    MAX_LEASTMATCH_ITEMS: int = Field(default=10, ge=1, le=20)
     EBAY_MIN_PRICE: int = Field(default=50, ge=0)
 
 

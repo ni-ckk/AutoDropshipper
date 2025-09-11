@@ -2,8 +2,12 @@
 Format product comparisons into Telegram-friendly messages.
 """
 
+from decimal import Decimal
 from typing import Any, Dict, List
 
+from src.core.models.ebay_listing import EbayListing
+from src.core.models.idealo_product import IdealoProduct
+from src.core.utils.profitability_calculator import ProfitabilityCalculator
 from src.shared.logging.log_setup import get_logger
 
 logger = get_logger(__name__)
@@ -23,81 +27,164 @@ class TelegramFormatter:
         Returns:
             Formatted message string
         """
-        message = f"<b>🔎 Scrape Results for:</b> {results['idealo_product_title']}\n\n"
+        try:
+            # safely get the product title with fallback
+            product_title = results.get('idealo_product_title', 'Unknown Product')
+            if not product_title:
+                product_title = 'Unknown Product'
+            
+            # escape HTML special characters to prevent parsing issues
+            product_title = str(product_title).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            
+            message = f"<b>🔎 Scrape Results for:</b> {product_title}\n\n"
 
-        if results.get('best_matches'):
-            message += "<b>✅ Best Matches:</b>\n"
-            for item in results['best_matches']:
-                profit = f"pot. Profit: <b>€{item['potential_profit']:.2f}</b>"
-                message += f"- <a href='{item['Ebay product link']}'>{item['Ebay product title']}</a>\n"
-                message += f"  Price: €{item['Ebay product price']} | {profit}\n\n"
-        else:
-            message += "❌ No best matches found.\n\n"
+            if results.get('best_matches'):
+                message += "<b>✅ Best Matches:</b>\n"
+                for item in results.get('best_matches', []):
+                    try:
+                        # safely get item fields with defaults
+                        title = str(item.get('Ebay product title', 'Unknown')).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                        link = str(item.get('Ebay product link', '#'))
+                        price = float(item.get('Ebay product price', 0))
+                        profit = float(item.get('potential_profit', 0))
+                        
+                        profit_text = f"pot. Profit: <b>€{profit:.2f}</b>"
+                        message += f"- <a href='{link}'>{title}</a>\n"
+                        message += f"  Price: €{price:.2f} | {profit_text}\n\n"
+                    except Exception as e:
+                        logger.warning("format_item_failed", error=str(e), item=item)
+                        continue
+            else:
+                message += "❌ No best matches found.\n\n"
 
-        if results.get('less_relevant_matches'):
-            message += "<b>🤔 Less Relevant Matches:</b>\n"
-            for item in results['less_relevant_matches']:
-                profit = f"pot. Profit: <b>€{item['potential_profit']:.2f}</b>"
-                message += f"- <a href='{item['Ebay product link']}'>{item['Ebay product title']}</a>\n"
-                message += f"  Price: €{item['Ebay product price']} | {profit}\n\n"
+            if results.get('less_relevant_matches'):
+                message += "<b>🤔 Less Relevant Matches:</b>\n"
+                for item in results.get('less_relevant_matches', []):
+                    try:
+                        # safely get item fields with defaults
+                        title = str(item.get('Ebay product title', 'Unknown')).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                        link = str(item.get('Ebay product link', '#'))
+                        price = float(item.get('Ebay product price', 0))
+                        profit = float(item.get('potential_profit', 0))
+                        
+                        profit_text = f"pot. Profit: <b>€{profit:.2f}</b>"
+                        message += f"- <a href='{link}'>{title}</a>\n"
+                        message += f"  Price: €{price:.2f} | {profit_text}\n\n"
+                    except Exception as e:
+                        logger.warning("format_item_failed", error=str(e), item=item)
+                        continue
 
-        logger.debug("telegram_message_formatted", length=len(message))
-        return message
+            # ensure message is never empty
+            if not message or len(message.strip()) == 0:
+                message = "eBay search completed but no results could be formatted."
+                
+            logger.debug("telegram_message_formatted", length=len(message), content_preview=message[:100])
+            return message
+            
+        except Exception as e:
+            logger.error("format_ebay_results_failed", error=str(e), results=results)
+            # return a fallback message instead of raising
+            return f"eBay search completed but formatting failed: {str(e)}"
     
+   
     @staticmethod
-    def format_profitable_products(products: List[Dict[str, Any]]) -> str:
+    def build_comparison_data(
+        idealo_product: IdealoProduct,
+        ebay_listings: List[EbayListing],
+        max_best_matches: int = 5,
+        max_least_matches: int = 3
+    ) -> Dict[str, Any]:
         """
-        Format list of profitable products for Telegram.
+        Build comparison data structure for format_ebay_results.
         
         Args:
-            products: List of profitable product dictionaries
+            idealo_product: The Idealo product to compare
+            ebay_listings: List of eBay listings to compare against
+            max_best_matches: Maximum number of best matches to include
+            max_least_matches: Maximum number of least matches to include
             
         Returns:
-            Formatted message string
+            Dictionary formatted for format_ebay_results method
         """
-        if not products:
-            return "📊 <b>No profitable products found in this scraping session.</b>"
-        
-        message = f"💰 <b>Found {len(products)} Profitable Products!</b>\n\n"
-        
-        for i, product in enumerate(products[:5], 1):  # limit to top 5
-            message += f"<b>{i}. {product['name'][:50]}</b>\n"
-            message += f"💰 Profit: €{product.get('profit', 0):.2f}\n"
-            message += f"🏪 Idealo: €{product['price']}\n"
-            if product.get('source_url'):
-                message += f"🔗 <a href='{product['source_url']}'>View Product</a>\n\n"
-        
-        if len(products) > 5:
-            message += f"... and {len(products) - 5} more products.\n"
-        
-        return message
-    
-    @staticmethod
-    def format_scraping_summary(
-        total_products: int,
-        profitable_count: int,
-        scrape_duration: str = ""
-    ) -> str:
-        """
-        Format scraping session summary.
-        
-        Args:
-            total_products: Total products scraped
-            profitable_count: Number of profitable products found
-            scrape_duration: Duration of scraping session
+        try:
+            # ensure we have valid product data
+            product_name = idealo_product.name if idealo_product and hasattr(idealo_product, 'name') else 'Unknown Product'
+            product_price = idealo_product.price if idealo_product and hasattr(idealo_product, 'price') else Decimal('0')
             
-        Returns:
-            Formatted summary message
-        """
-        message = "📈 <b>Scraping Session Complete!</b>\n\n"
-        message += f"📦 Total Products: {total_products}\n"
-        message += f"💰 Profitable: {profitable_count}\n"
-        
-        if total_products > 0:
-            profit_rate = (profitable_count / total_products) * 100
-            message += f"📊 Success Rate: {profit_rate:.1f}%\n"
-        
-        if scrape_duration:
-            message += f"⏱️ Duration: {scrape_duration}\n"
-        
-        return message
+            # ensure product_name is not None or empty
+            if not product_name:
+                product_name = 'Unknown Product'
+            
+            # separate listings based on is_best_match attribute
+            best_matches = []
+            less_relevant = []
+            
+            if ebay_listings:
+                for listing in ebay_listings:
+                    if hasattr(listing, 'is_best_match') and listing.is_best_match:
+                        best_matches.append(listing)
+                    else:
+                        less_relevant.append(listing)
+            
+            # initialize result structure with guaranteed fields
+            result = {
+                'idealo_product_title': f"{product_name} - €{product_price:.2f}",
+                'best_matches': [],
+                'less_relevant_matches': []
+            }
+            
+            # calculate profitability
+            calc = ProfitabilityCalculator()
+            
+            # process best matches
+            for listing in best_matches[:max_best_matches]:
+                try:
+                    profit = calc.calculate_simple_profit(
+                        product_price,
+                        listing.price if hasattr(listing, 'price') else Decimal('0')
+                    )
+                    result['best_matches'].append({
+                        'Ebay product title': listing.title if hasattr(listing, 'title') else 'Unknown',
+                        'Ebay product link': str(listing.source_url) if hasattr(listing, 'source_url') else '#',
+                        'Ebay product price': float(listing.price) if hasattr(listing, 'price') else 0,
+                        'potential_profit': float(profit)
+                    })
+                except Exception as e:
+                    logger.warning("process_best_match_failed", error=str(e), listing=listing)
+                    continue
+            
+            # process least relevant matches
+            for listing in less_relevant[:max_least_matches]:
+                try:
+                    profit = calc.calculate_simple_profit(
+                        product_price,
+                        listing.price if hasattr(listing, 'price') else Decimal('0')
+                    )
+                    result['less_relevant_matches'].append({
+                        'Ebay product title': listing.title if hasattr(listing, 'title') else 'Unknown',
+                        'Ebay product link': str(listing.source_url) if hasattr(listing, 'source_url') else '#',
+                        'Ebay product price': float(listing.price) if hasattr(listing, 'price') else 0,
+                        'potential_profit': float(profit)
+                    })
+                except Exception as e:
+                    logger.warning("process_less_relevant_failed", error=str(e), listing=listing)
+                    continue
+            
+            logger.info(
+                "comparison_data_built",
+                idealo_product=product_name,
+                best_matches_count=len(result['best_matches']),
+                less_relevant_count=len(result['less_relevant_matches']),
+                title_set=result.get('idealo_product_title', 'MISSING')
+            )
+            
+            return result
+            
+        except Exception as e:
+            logger.error("build_comparison_data_failed", error=str(e))
+            # return minimal valid structure
+            return {
+                'idealo_product_title': 'Error Processing Product',
+                'best_matches': [],
+                'less_relevant_matches': []
+            }

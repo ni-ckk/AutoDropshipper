@@ -51,6 +51,16 @@ class TelegramClient:
             logger.warning("telegram_not_configured", action="skip_notification")
             return False
         
+        # validate message is not empty
+        if not message or not message.strip():
+            logger.error("telegram_empty_message", action="skip_notification")
+            raise TelegramNotificationError("Cannot send empty message to Telegram")
+        
+        # telegram has a 4096 character limit for messages
+        if len(message) > 4096:
+            logger.warning("telegram_message_too_long", original_length=len(message))
+            message = message[:4090] + "\n\n..."  # truncate with ellipsis
+        
         url = f"https://api.telegram.org/bot{self.config.TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             'chat_id': self.config.TELEGRAM_CHAT_ID,
@@ -66,9 +76,10 @@ class TelegramClient:
             
         except requests.exceptions.RequestException as e:
             logger.error("telegram_notification_failed", error=str(e))
+            status_code = getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
             raise TelegramNotificationError(
                 f"Failed to send Telegram notification: {e}",
-                getattr(response, 'status_code', None)
+                status_code
             )
     
     def send_photo(self, photo_path: str, caption: str = "") -> bool:
@@ -110,7 +121,8 @@ class TelegramClient:
             
         except requests.exceptions.RequestException as e:
             logger.error("telegram_photo_failed", error=str(e))
+            status_code = getattr(e.response, 'status_code', None) if hasattr(e, 'response') else None
             raise TelegramNotificationError(
                 f"Failed to send Telegram photo: {e}",
-                getattr(response, 'status_code', None)
+                status_code
             )

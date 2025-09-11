@@ -20,6 +20,7 @@ from src.database.repositories.ebay_listing_repository import EbayListingReposit
 from src.database.repositories.idealo_product_repository import IdealoProductRepository
 from src.scrapers.ebay.ebay_scraper import EbayScraper
 from src.scrapers.idealo.idealo_scraper import IdealoScraper
+from src.shared.config.ebay_settings import get_ebay_config
 from src.shared.logging.log_setup import get_logger, setup_logging
 
 # setup logging
@@ -27,6 +28,10 @@ import os
 log_level = os.getenv("LOG_LEVEL", "INFO")
 setup_logging(log_level=log_level)
 logger = get_logger(__name__)
+
+# Get config for eBay scraping
+from src.shared.config.app_settings import get_app_config
+config = get_app_config()
 
 
 def run_idealo_scraper() -> List[IdealoProduct]:
@@ -79,6 +84,85 @@ def run_ebay_scraper(search_query: str, max_results: int = 20) -> List[EbayListi
         logger.error("ebay_scraping_failed", error=str(e), exc_info=True)
         print(f"ERROR: eBay scraping failed: {e}")
         return []
+
+
+def compare_product_on_ebay(
+    idealo_product: IdealoProduct, 
+    max_results: int = 10,
+    send_telegram: bool = True
+) -> List[EbayListing]:
+    """
+    Search eBay for an Idealo product and optionally send telegram notification.
+    
+    Args:
+        idealo_product: The Idealo product to search for
+        max_results: Maximum number of eBay listings to fetch
+        send_telegram: Whether to send telegram notification
+        
+    Returns:
+        List of eBay listings found
+    """
+    # search eBay for the product
+    listings = run_ebay_scraper(idealo_product.name, max_results)
+    
+    # send telegram notification if enabled and listings found
+    if listings and send_telegram:
+        try:
+            from src.integrations.telegram.telegram_client import TelegramClient
+            from src.integrations.telegram.telegram_formatter import TelegramFormatter
+            from src.shared.config.telegram_settings import get_telegram_config
+            
+            telegram_config = get_telegram_config()
+            
+            if telegram_config.is_configured:
+                formatter = TelegramFormatter()
+                client = TelegramClient()
+                
+                # get ebay config for max items settings
+                ebay_config = get_ebay_config()
+                
+                # build comparison data using the helper method
+                comparison_data = formatter.build_comparison_data(
+                    idealo_product, 
+                    listings, 
+                    ebay_config.MAX_BESTMATCH_ITEMS,
+                    ebay_config.MAX_LEASTMATCH_ITEMS)
+                
+                logger.info("telegram_comparison_data", 
+                    best_count=len(comparison_data.get('best_matches', [])),
+                    less_relevant_count=len(comparison_data.get('less_relevant_matches', [])),
+                    has_title=bool(comparison_data.get('idealo_product_title'))
+                )
+                
+                message = formatter.format_ebay_results(comparison_data)
+                
+                logger.info("telegram_message_created", 
+                    message_length=len(message) if message else 0,
+                    is_empty=not message or not message.strip(),
+                    first_100_chars=message[:100] if message else "NONE"
+                )
+                
+                # validate message before sending
+                if not message or not message.strip():
+                    logger.error("telegram_message_empty", 
+                        comparison_data=comparison_data,
+                        idealo_product=idealo_product.name
+                    )
+                    message = f"eBay search completed for {idealo_product.name} with {len(listings)} results, but message formatting failed."
+                
+                # send notification
+                if client.send_notification(message):
+                    logger.info("telegram_comparison_sent", product=idealo_product.name, listings_count=len(listings))
+                    print(f"  → Telegram notification sent")
+            else:
+                logger.debug("telegram_not_configured", action="skip_notification")
+                
+        except Exception as e:
+            logger.error("telegram_notification_failed", error=str(e))
+            print(f"  → Telegram notification failed: {e}")
+            # don't fail the whole process if telegram fails
+    
+    return listings
 
 
 def run_full_production_flow() -> None:
@@ -154,6 +238,9 @@ def save_to_database(products: List[IdealoProduct], listings: List[EbayListing])
                 )
                 print(f"SUCCESS: Saved {len(products)} Idealo products to database")
                 
+                # create a lookup dictionary of original products by name
+                products_by_name = {p.name: p for p in products}
+                
                 # run eBay checks for new and stale products
                 if needs_ebay_check:
                     print(f"\nChecking eBay for {len(needs_ebay_check)} products...")
@@ -162,10 +249,26 @@ def save_to_database(products: List[IdealoProduct], listings: List[EbayListing])
                     for idx, product_info in enumerate(needs_ebay_check, 1):
                         print(f"[{idx}/{len(needs_ebay_check)}] Checking eBay for: {product_info['name'][:50]}... ({product_info['type']})")
                         
-                        # use existing eBay scraper to search for this product
-                        ebay_listings = run_ebay_scraper(
-                            search_query=product_info['name'],
-                            max_results=10  # limit results per product
+                        # use original IdealoProduct if available
+                        idealo_product = products_by_name.get(product_info['name'])
+                        
+                        if not idealo_product:
+                            # fallback: create from product_info (shouldn't happen normally)
+                            logger.warning("product_not_found_in_original_list", name=product_info['name'])
+                            idealo_product = IdealoProduct(
+                                name=product_info['name'],
+                                price=Decimal(str(product_info.get('price', 0))),
+                                discount=Decimal(str(product_info.get('discount', 0))) if product_info.get('discount') else None,
+                                source_url=product_info.get('source_url', 'https://idealo.de'),
+                                category=product_info.get('category', 'Unknown'),
+                                is_active=product_info.get('is_active', True)
+                            )
+                        
+                        # use wrapper function with telegram enabled
+                        ebay_listings = compare_product_on_ebay(
+                            idealo_product=idealo_product,
+                            max_results=10,
+                            send_telegram=True  # enable telegram in production flow
                         )
                         
                         if ebay_listings:
@@ -253,10 +356,6 @@ Examples:
         # reconfigure with DEBUG level
         setup_logging(log_level="DEBUG")
     
-    # Get config for eBay scraping
-    from src.shared.config.app_settings import get_app_config
-    config = get_app_config()
-    
     # Welcome message
     subtitle = f"Scope: {args.scope.upper()}"
     if args.scope == "ebay" and args.query:
@@ -288,7 +387,8 @@ Examples:
                 sys.exit(1)
             
             # Calculate max results from config
-            max_results = config.ebay.MAX_BESTMATCH_ITEMS + config.ebay.MAX_LEASTMATCH_ITEMS
+            ebay_config = get_ebay_config()
+            max_results = ebay_config.MAX_BESTMATCH_ITEMS + ebay_config.MAX_LEASTMATCH_ITEMS
             listings = run_ebay_scraper(args.query, max_results)
             
             print(f"\nSUCCESS: Found {len(listings)} eBay listings")

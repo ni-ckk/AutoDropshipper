@@ -32,13 +32,16 @@ It should send Telegram notification about profitable products and have an inter
     - connect to db when done and tested
 - [WIP] Telegram notifications
     - basic version exists, but need to reiterate on the format of messages.
+
+- [] Wrap all with Kubernetes.
+    - [] cronjobs for idealo scraper (schedule every N hours to run), as main entry point.
+- [] Set django app from debug to production
+Later:
 - [] Feed Gemini with htmls and refactor scraper unit tests
 
 - [] Integrate n8n (not sure how and for which part, yet but 100% need)
 - [] Add Gemini 2.5 Flash API to compare the product names 
     from idealo scraper vs ebay scraper, to make a decision if it is the same product.
-- [] Wrap all with Kubernetes.
-    - [] cronjobs for idealo scraper (schedule every N hours to run), as main entry point.
 - [] Add authorization to dealboard for admins (it will contain more specific actions)
 - [] Add sorting / filtering to the dealboard
 - [] Add another page with all products and all related/scraped data
