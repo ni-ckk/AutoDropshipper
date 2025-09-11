@@ -2,24 +2,20 @@
 
 An automated dropshipping application that scrapes product data from idealo.de, compares prices with eBay listings, and identifies profitable reselling opportunities.
 
-## Features
-
-- **Web Scraping** Automated scraping of idealo.de
-- **Price Comparison** Compares found products with eBay listings  
-- **Profitability Analysis**
-- **Notifications** Telegram bot integration for alerts
-- **Dashboard** Django web app
-- **Containerized** Docker/k8
-
 ## Tech Stack
 
 - **Python 3.10+**
 - **SeleniumBase** 
 - **PostgreSQL**
 - **Django 5.2**
-- **Docker & Docker Compose**
+- **Kubernetes**
+- **Docker**
 - **UV**
 - **Pydantic**
+
+# First, the app will gather top discounted products...
+
+![Gathering_discounts](docs/assets/idealo_flow.gif)
 
 ## Quick Start with Docker (Recommended)
 
