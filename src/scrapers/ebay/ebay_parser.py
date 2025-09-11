@@ -59,23 +59,23 @@ class EbayParser:
         try:
             listing_data = {}
             
-            # extract title
-            title_selector = 'div.s-item__title > span'
+            # extract title - updated selector for new s-card structure
+            title_selector = '.s-card__title span'
             title_tag = item_soup.select_one(title_selector)
             if not title_tag:
                 return None
             listing_data['title'] = title_tag.get_text(strip=True)
             
-            # extract subtitle (optional)
-            subtitle_selector = 'div.s-item__subtitle'
+            # extract subtitle (optional) - updated selector
+            subtitle_selector = '.s-card__subtitle'
             subtitle_tag = item_soup.select_one(subtitle_selector)
             listing_data['subtitle'] = (
                 subtitle_tag.get_text(strip=True, separator=' ') 
                 if subtitle_tag else None
             )
             
-            # extract price
-            price_selector = 'span.s-item__price'
+            # extract price - updated selector
+            price_selector = '.s-card__price'
             price_tag = item_soup.select_one(price_selector)
             if not price_tag:
                 return None
@@ -83,15 +83,15 @@ class EbayParser:
             price_text = price_tag.get_text(strip=True)
             listing_data['price'] = EbayParser.parse_price(price_text)
             
-            # extract URL
-            url_selector = 'a.s-item__link'
+            # extract URL - updated selector for new structure
+            url_selector = '.su-link'
             url_tag = item_soup.select_one(url_selector)
             if not url_tag or not url_tag.get('href'):
                 return None
             listing_data['source_url'] = url_tag['href']
             
-            # extract image URL (using exact original selector)
-            image_selector = 'div.s-item__image img'
+            # extract image URL - updated selector
+            image_selector = '.s-card__image'
             image_tag = item_soup.select_one(image_selector)
             if image_tag:
                 listing_data['image_url'] = (
@@ -124,8 +124,8 @@ class EbayParser:
         
         for item in list_items:
             class_list = item.get('class')
-            # use original logic: check if 's-item' is in class list
-            if isinstance(class_list, list) and 's-item' in class_list:
+            # updated to check for s-card instead of s-item
+            if isinstance(class_list, list) and 's-card' in class_list:
                 valid_listings.append(item)
         
         logger.info("ebay_listings_found_on_page", count=len(valid_listings))

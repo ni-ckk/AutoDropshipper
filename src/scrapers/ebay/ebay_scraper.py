@@ -252,11 +252,11 @@ class EbayScraper:
             # get all list items from search results
             list_items = soup.select('ul.srp-results > li')
             
-            # filter to only get items with s-item class (actual product listings)
+            # filter to only get items with s-card class (actual product listings)
             product_elements = []
             for item in list_items:
                 class_list = item.get('class')
-                if isinstance(class_list, list) and 's-item' in class_list:
+                if isinstance(class_list, list) and 's-card' in class_list:
                     product_elements.append(item)
             
             return product_elements
@@ -311,8 +311,8 @@ class EbayScraper:
                         divider_text=item_text[:100]  # first 100 chars
                     )
                     break
-            # count actual product items
-            if isinstance(class_list, list) and 's-item' in class_list:
+            # count actual product items - updated to check for s-card
+            if isinstance(class_list, list) and 's-card' in class_list:
                 item_count += 1
                 if item_count <= 3:  # log first few items for debugging
                     logger.debug(
