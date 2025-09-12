@@ -14,6 +14,7 @@ from src.shared.logging.log_setup import get_logger, log_scraping_progress
 
 from .ebay_parser import EbayParser
 from .ebay_scraper_utils import EbayScraperUtils
+from .ebay_selectors import selector_manager
 
 logger = get_logger(__name__)
 
@@ -32,6 +33,7 @@ class EbayScraper:
         self.driver = None
         self.parser = EbayParser()
         self.utils = EbayScraperUtils()
+        self.selector_manager = selector_manager
         
     def __enter__(self):
         """Context manager entry."""
@@ -250,13 +252,13 @@ class EbayScraper:
             soup = sb.get_beautiful_soup()
             
             # get all list items from search results
-            list_items = soup.select('ul.srp-results > li')
+            container_selector = self.selector_manager.get_all_patterns('results_container')[0]
+            list_items = soup.select(container_selector)
             
-            # filter to only get items with s-card class (actual product listings)
+            # filter to only get items with product class (s-card or s-item)
             product_elements = []
             for item in list_items:
-                class_list = item.get('class')
-                if isinstance(class_list, list) and 's-card' in class_list:
+                if self.selector_manager.try_class_match(item, 'item_class'):
                     product_elements.append(item)
             
             return product_elements
@@ -280,8 +282,10 @@ class EbayScraper:
         # get page soup for analysis
         soup = sb.get_beautiful_soup()
         
-        # check if no best matches found
-        no_match_element = soup.select_one("div.srp-save-null-search__title")
+        # check if no best matches found using selector manager
+        no_match_element = self.selector_manager.try_selectors(
+            soup, 'no_results', required=False
+        )
         has_no_best_matches = bool(no_match_element)
         
         if has_no_best_matches:
@@ -291,28 +295,40 @@ class EbayScraper:
             )
         
         # get all list items and find divider
-        list_items = soup.select('ul.srp-results > li')
+        container_selector = self.selector_manager.get_all_patterns('results_container')[0]
+        list_items = soup.select(container_selector)
         logger.debug("total_list_items_found", count=len(list_items))
         
         divider_index = -1
         item_count = 0
         
+        # get divider patterns
+        divider_classes = self.selector_manager.get_all_patterns('divider_class')
+        divider_texts = self.selector_manager.get_all_patterns('divider_text')
+        
         for idx, item in enumerate(list_items):
             class_list = item.get('class')
             # check for divider element
-            if class_list and 'srp-river-answer--REWRITE_START' in class_list:
-                item_text = item.get_text()
-                if "Ergebnisse für weniger Suchbegriffe" in item_text:
-                    divider_index = item_count
-                    logger.info(
-                        "divider_found",
-                        at_position=idx,
-                        after_items=item_count,
-                        divider_text=item_text[:100]  # first 100 chars
-                    )
-                    break
-            # count actual product items - updated to check for s-card
-            if isinstance(class_list, list) and 's-card' in class_list:
+            if class_list:
+                for divider_class in divider_classes:
+                    if divider_class in class_list:
+                        item_text = item.get_text()
+                        # check if it contains the expected text
+                        for divider_text in divider_texts:
+                            if divider_text in item_text:
+                                divider_index = item_count
+                                logger.info(
+                                    "divider_found",
+                                    at_position=idx,
+                                    after_items=item_count,
+                                    divider_text=item_text[:100]
+                                )
+                                break
+                        if divider_index != -1:
+                            break
+            
+            # count actual product items using selector manager
+            if self.selector_manager.try_class_match(item, 'item_class'):
                 item_count += 1
                 if item_count <= 3:  # log first few items for debugging
                     logger.debug(

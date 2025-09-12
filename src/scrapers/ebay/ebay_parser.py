@@ -16,37 +16,56 @@ logger = get_logger(__name__)
 
 
 class EbayParser:
-    """Handles parsing of eBay listing data from HTML."""
+    """Parser for eBay search results and product listings."""
+    
+    def __init__(self):
+        """Initialize the parser with selector manager."""
+        from .ebay_selectors import selector_manager
+        self.selector_manager = selector_manager
     
     @staticmethod
-    def parse_price(price_text: str) -> Decimal:
+    def parse_price(price_text: str) -> float:
         """
-        Parse price from eBay price text.
+        Parse price text to float value.
         
         Args:
-            price_text: Raw price text from eBay
+            price_text: Price string from eBay (e.g., "EUR 29,99", "$19.99")
             
         Returns:
-            Parsed price as Decimal
-            
-        Raises:
-            PriceParsingError: If price cannot be parsed
+            Float price value
         """
         try:
-            # extract numeric part from price text
-            price_match = re.search(r'[\d,.]+', price_text)
-            if not price_match:
-                raise PriceParsingError(price_text)
+            # remove currency symbols and extra text
+            cleaned = price_text.replace('EUR', '').replace('$', '').replace('£', '')
+            cleaned = cleaned.replace('€', '').strip()
             
-            price_cleaned = price_match.group(0).replace('.', '').replace(',', '.')
-            return Decimal(price_cleaned)
+            # handle range prices (take first value)
+            if ' to ' in cleaned or ' bis ' in cleaned:
+                cleaned = cleaned.split()[0]
             
-        except (InvalidOperation, ValueError) as e:
-            logger.error("ebay_price_parsing_failed", price_text=price_text, error=str(e))
-            raise PriceParsingError(price_text)
+            # handle german decimal format (comma as decimal separator)
+            if ',' in cleaned and '.' in cleaned:
+                # both present - assume german format (1.234,56)
+                cleaned = cleaned.replace('.', '').replace(',', '.')
+            elif ',' in cleaned and cleaned.count(',') == 1:
+                # only comma - could be german decimal
+                parts = cleaned.split(',')
+                if len(parts) == 2 and len(parts[1]) <= 2:
+                    # likely german decimal format
+                    cleaned = cleaned.replace(',', '.')
+                else:
+                    # likely thousands separator
+                    cleaned = cleaned.replace(',', '')
+            else:
+                # just remove any commas (thousands separator)
+                cleaned = cleaned.replace(',', '')
+            
+            return float(cleaned)
+        except (ValueError, AttributeError) as e:
+            logger.warning("price_parse_failed", price_text=price_text, error=str(e))
+            return 0.0
     
-    @staticmethod
-    def extract_listing_data(item_soup: Tag) -> Optional[Dict[str, Any]]:
+    def extract_listing_data(self, item_soup: Tag) -> Optional[Dict[str, Any]]:
         """
         Extract listing data from eBay search result item.
         
@@ -59,40 +78,45 @@ class EbayParser:
         try:
             listing_data = {}
             
-            # extract title - updated selector for new s-card structure
-            title_selector = '.s-card__title span'
-            title_tag = item_soup.select_one(title_selector)
+            # extract title using selector manager
+            title_tag = self.selector_manager.try_selectors(
+                item_soup, 'title', required=True
+            )
             if not title_tag:
                 return None
             listing_data['title'] = title_tag.get_text(strip=True)
             
-            # extract subtitle (optional) - updated selector
-            subtitle_selector = '.s-card__subtitle'
-            subtitle_tag = item_soup.select_one(subtitle_selector)
+            # extract subtitle (optional) using selector manager
+            subtitle_tag = self.selector_manager.try_selectors(
+                item_soup, 'subtitle', required=False
+            )
             listing_data['subtitle'] = (
                 subtitle_tag.get_text(strip=True, separator=' ') 
                 if subtitle_tag else None
             )
             
-            # extract price - updated selector
-            price_selector = '.s-card__price'
-            price_tag = item_soup.select_one(price_selector)
+            # extract price using selector manager
+            price_tag = self.selector_manager.try_selectors(
+                item_soup, 'price', required=True
+            )
             if not price_tag:
                 return None
             
             price_text = price_tag.get_text(strip=True)
-            listing_data['price'] = EbayParser.parse_price(price_text)
+            listing_data['price'] = self.parse_price(price_text)
             
-            # extract URL - updated selector for new structure
-            url_selector = '.su-link'
-            url_tag = item_soup.select_one(url_selector)
+            # extract URL using selector manager
+            url_tag = self.selector_manager.try_selectors(
+                item_soup, 'url', required=True
+            )
             if not url_tag or not url_tag.get('href'):
                 return None
             listing_data['source_url'] = url_tag['href']
             
-            # extract image URL - updated selector
-            image_selector = '.s-card__image'
-            image_tag = item_soup.select_one(image_selector)
+            # extract image URL using selector manager
+            image_tag = self.selector_manager.try_selectors(
+                item_soup, 'image', required=False
+            )
             if image_tag:
                 listing_data['image_url'] = (
                     image_tag.get('src') or image_tag.get('data-src')
@@ -107,10 +131,9 @@ class EbayParser:
             logger.warning("ebay_listing_parse_failed", error=str(e))
             return None
     
-    @staticmethod
-    def find_listings_on_page(soup: BeautifulSoup) -> list:
+    def find_listings_on_page(self, soup: BeautifulSoup) -> list:
         """
-        Find all listing elements on eBay search results page using original logic.
+        Find all listing elements on eBay search results page.
         
         Args:
             soup: BeautifulSoup object of the eBay page
@@ -118,14 +141,14 @@ class EbayParser:
         Returns:
             List of valid listing elements
         """
-        # use original selector from the working code
-        list_items = soup.select('ul.srp-results > li')
+        # get all list items from search results
+        container_selector = self.selector_manager.get_all_patterns('results_container')[0]
+        list_items = soup.select(container_selector)
         valid_listings = []
         
         for item in list_items:
-            class_list = item.get('class')
-            # updated to check for s-card instead of s-item
-            if isinstance(class_list, list) and 's-card' in class_list:
+            # use selector manager to check item classes
+            if self.selector_manager.try_class_match(item, 'item_class'):
                 valid_listings.append(item)
         
         logger.info("ebay_listings_found_on_page", count=len(valid_listings))
@@ -134,71 +157,86 @@ class EbayParser:
     @staticmethod
     def check_no_results(soup: BeautifulSoup) -> bool:
         """
-        Check if eBay search returned no results using original logic.
+        Check if eBay search returned no results.
         
         Args:
             soup: BeautifulSoup object of the eBay page
             
         Returns:
-            True if no results found
+            True if no results found, False otherwise
         """
-        # use original selector from working code
-        has_no_best_matches = bool(soup.select_one("div.srp-save-null-search__title"))
+        from .ebay_selectors import selector_manager
+        
+        # check for "no results" element
+        no_results_elem = selector_manager.try_selectors(
+            soup, 'no_results', required=False
+        )
+        has_no_best_matches = bool(no_results_elem)
         
         if has_no_best_matches:
-            logger.info("ebay_no_results_detected")
-            return True
+            logger.info("no_ebay_results_detected")
         
-        return False
+        return has_no_best_matches
     
-    @staticmethod
-    def find_divider_index(search_elements: List[Tag]) -> int:
+    def find_divider_index(self, soup: BeautifulSoup) -> int:
         """
-        Find the index that divides best matches from less relevant results.
-        
-        Based on original logic from find_product_ebay.py that looks for 
-        'srp-river-answer--REWRITE_START' class with text about less relevant results.
+        Find the index of the divider between best and less relevant matches.
         
         Args:
-            search_elements: List of search result elements
+            soup: BeautifulSoup object of the eBay page
             
         Returns:
-            Index of divider element, or -1 if not found
+            Index of divider element or -1 if not found
         """
-        for index, element in enumerate(search_elements):
-            class_list = element.get('class')
-            # check for divider element using original logic
-            if class_list and 'srp-river-answer--REWRITE_START' in class_list:
-                # check if it contains text about less relevant results
-                if "Ergebnisse für weniger Suchbegriffe" in element.get_text():
-                    logger.debug("ebay_divider_found", index=index)
-                    return index
+        container_selector = self.selector_manager.get_all_patterns('results_container')[0]
+        list_items = soup.select(container_selector)
         
-        logger.debug("ebay_divider_not_found")
+        divider_patterns = self.selector_manager.get_all_patterns('divider_class')
+        text_patterns = self.selector_manager.get_all_patterns('divider_text')
+        
+        item_count = 0
+        for idx, item in enumerate(list_items):
+            # check if this is a divider
+            class_list = item.get('class')
+            if class_list:
+                for divider_class in divider_patterns:
+                    if divider_class in class_list:
+                        item_text = item.get_text()
+                        # check if it contains the expected text
+                        for text_pattern in text_patterns:
+                            if text_pattern in item_text:
+                                logger.info(
+                                    "divider_found",
+                                    at_index=item_count,
+                                    text_preview=item_text[:100]
+                                )
+                                return item_count
+            
+            # count actual product items
+            if self.selector_manager.try_class_match(item, 'item_class'):
+                item_count += 1
+        
         return -1
     
-    @staticmethod
-    def parse_search_result_item(item_soup: Tag, is_best_match: bool = False) -> Optional[EbayListing]:
+    def parse_search_result_item(
+        self, item_soup: Tag, is_best_match: bool = True
+    ) -> Optional[EbayListing]:
         """
-        Parse a search result item into an EbayListing object.
-        
-        This is a wrapper around extract_listing_data that returns 
-        an EbayListing model instead of a dictionary.
+        Parse a single search result item into EbayListing.
         
         Args:
-            item_soup: BeautifulSoup Tag containing eBay listing
-            is_best_match: Whether this listing is in the best match section
+            item_soup: BeautifulSoup Tag containing the item
+            is_best_match: Whether this is a best match result
             
         Returns:
             EbayListing object or None if parsing fails
         """
-        listing_data = EbayParser.extract_listing_data(item_soup)
-        
+        listing_data = self.extract_listing_data(item_soup)
         if not listing_data:
             return None
         
         try:
-            # create EbayListing from extracted data
+            # create EbayListing object
             listing = EbayListing(
                 title=listing_data['title'],
                 subtitle=listing_data.get('subtitle'),
@@ -211,5 +249,9 @@ class EbayParser:
             return listing
             
         except Exception as e:
-            logger.warning("ebay_listing_model_creation_failed", error=str(e))
+            logger.warning(
+                "ebay_listing_creation_failed",
+                error=str(e),
+                title=listing_data.get('title', 'Unknown')[:50]
+            )
             return None
