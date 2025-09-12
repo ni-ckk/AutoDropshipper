@@ -17,6 +17,10 @@ An automated dropshipping application that scrapes product data from idealo.de, 
 
 ![Gathering_discounts](docs/assets/idealo_flow.gif)
 
+# Next, for each gathered product, app will decide if it's potentially profitable...
+
+![ebay_flow_mmd](docs/assets/ebay_flow_mmd.png)
+
 ## Quick Start with Docker (Recommended)
 
 1. **Prerequisites**: Install Docker and Docker Compose
