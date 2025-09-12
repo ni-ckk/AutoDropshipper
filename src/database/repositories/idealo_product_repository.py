@@ -2,8 +2,9 @@
 Idealo product-specific queries, upserts, and price history.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from src.shared.logging.log_setup import get_logger
 
@@ -63,10 +64,13 @@ class IdealoProductRepository(BaseRepository):
             New product ID or None if insertion failed
         """
         # match exact Django model fields with updated field names
+        # include new profit fields with default values (NULL for calculations, FALSE for is_profitable)
         query = """
             INSERT INTO deal_board_product 
-            (name, source_url, image_url, price, discount, is_active, category, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, TRUE, %s, NOW(), NOW()) RETURNING id;
+            (name, source_url, image_url, price, discount, is_active, category, 
+             potential_profit, profit_percentage, is_profitable, min_ebay_price,
+             created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, TRUE, %s, NULL, NULL, FALSE, NULL, NOW(), NOW()) RETURNING id;
         """
         params = (
             product_data["name"],
@@ -112,6 +116,44 @@ class IdealoProductRepository(BaseRepository):
         self._execute_query(query, (product_id,))
         logger.debug("last_ebay_check_updated", product_id=product_id)
     
+    def update_product_profit(
+        self, 
+        product_id: int, 
+        potential_profit: Any,
+        profit_percentage: Optional[float],
+        is_profitable: bool,
+        min_ebay_price: Any
+    ) -> None:
+        """
+        Update product with calculated profit information.
+        
+        Args:
+            product_id: Product ID to update
+            potential_profit: Calculated potential profit (Decimal or None)
+            profit_percentage: Profit margin as percentage (float or None)
+            is_profitable: Whether the product is considered profitable
+            min_ebay_price: Minimum price found on eBay (Decimal or None)
+        """
+        query = """
+            UPDATE deal_board_product
+            SET potential_profit = %s,
+                profit_percentage = %s,
+                is_profitable = %s,
+                min_ebay_price = %s,
+                updated_at = NOW()
+            WHERE id = %s;
+        """
+        self._execute_query(
+            query, 
+            (potential_profit, profit_percentage, is_profitable, min_ebay_price, product_id)
+        )
+        logger.info(
+            "product_profit_updated", 
+            product_id=product_id,
+            is_profitable=is_profitable,
+            potential_profit=potential_profit
+        )
+    
     def process_scraped_products(self, products_to_process: List[Dict[str, Any]], ebay_check_threshold_days: int = 14) -> List[Dict[str, Any]]:
         """
         Process and store list of scraped products, tracking which need eBay checks.
@@ -152,7 +194,19 @@ class IdealoProductRepository(BaseRepository):
                         })
                         logger.debug("ebay_check_needed", product_id=product_id, reason="never_checked")
                     else:
-                        days_since_check = (datetime.now() - last_ebay_check).days
+                        # use timezone-aware datetime for comparison
+                        berlin_tz = ZoneInfo("Europe/Berlin")
+                        now_berlin = datetime.now(berlin_tz)
+                        
+                        # convert last_ebay_check to timezone-aware if needed
+                        if last_ebay_check.tzinfo is None:
+                            # assume database times are in Berlin timezone
+                            last_ebay_check_aware = last_ebay_check.replace(tzinfo=berlin_tz)
+                        else:
+                            # already timezone-aware, convert to Berlin if different
+                            last_ebay_check_aware = last_ebay_check.astimezone(berlin_tz)
+                        
+                        days_since_check = (now_berlin - last_ebay_check_aware).days
                         if days_since_check > ebay_check_threshold_days:
                             needs_ebay_check.append({
                                 "product_id": product_id,

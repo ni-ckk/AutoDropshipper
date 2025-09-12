@@ -3,12 +3,17 @@ FROM python:3.13.5-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# Set timezone to Berlin
+ENV TZ=Europe/Berlin
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 WORKDIR /app
 
 # install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
+    tzdata \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 

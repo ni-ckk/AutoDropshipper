@@ -4,11 +4,16 @@ FROM python:3.13.5-slim-bookworm
 # 2. Set DEBIAN_FRONTEND to noninteractive to avoid prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 3. Install system dependencies and Google Chrome in a single layer for a smaller image
+# 3. Set timezone to Berlin
+ENV TZ=Europe/Berlin
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# 4. Install system dependencies and Google Chrome in a single layer for a smaller image
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
     unzip \
+    tzdata \
     # Required Chrome dependencies
     libglib2.0-0 \
     libnss3 \
@@ -25,26 +30,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/* && \
     rm -f /etc/apt/sources.list.d/google-chrome.list
 
-# 4. Create a non-root user for better security
+# 5. Create a non-root user for better security
 RUN useradd --create-home dockie
 USER dockie
 WORKDIR /home/dockie/
 
 ENV PATH="/home/dockie/.local/bin:${PATH}"
 
-# 5. Install UV package manager in user space
+# 6. Install UV package manager in user space
 RUN pip install --user --no-cache-dir uv
 
-# 6. Copy requirements first to leverage Docker layer caching
+# 7. Copy requirements first to leverage Docker layer caching
 COPY --chown=dockie:dockie pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-cache
 
-# 7. Copy the application files  
+# 8. Copy the application files  
 COPY --chown=dockie:dockie . ./
 
-# 8. Install the correct chromedriver for the installed Chrome version
+# 9. Install the correct chromedriver for the installed Chrome version
 # This will be installed in the user's home directory, and seleniumbase will find it.
 RUN uv run seleniumbase install chromedriver
 
-# 9. Default command - shows help, can be overridden
+# 10. Default command - shows help, can be overridden
 CMD ["uv", "run", "python", "-m", "src.scrapers.main", "--help"]

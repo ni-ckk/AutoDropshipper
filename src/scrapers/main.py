@@ -88,16 +88,14 @@ def run_ebay_scraper(search_query: str, max_results: int = 20) -> List[EbayListi
 
 def compare_product_on_ebay(
     idealo_product: IdealoProduct, 
-    max_results: int = 10,
-    send_telegram: bool = True
+    max_results: int = 10
 ) -> List[EbayListing]:
     """
-    Search eBay for an Idealo product and optionally send telegram notification.
+    Search eBay for an Idealo product.
     
     Args:
         idealo_product: The Idealo product to search for
         max_results: Maximum number of eBay listings to fetch
-        send_telegram: Whether to send telegram notification
         
     Returns:
         List of eBay listings found
@@ -105,62 +103,16 @@ def compare_product_on_ebay(
     # search eBay for the product
     listings = run_ebay_scraper(idealo_product.name, max_results)
     
-    # send telegram notification if enabled and listings found
-    if listings and send_telegram:
-        try:
-            from src.integrations.telegram.telegram_client import TelegramClient
-            from src.integrations.telegram.telegram_formatter import TelegramFormatter
-            from src.shared.config.telegram_settings import get_telegram_config
-            
-            telegram_config = get_telegram_config()
-            
-            if telegram_config.is_configured:
-                formatter = TelegramFormatter()
-                client = TelegramClient()
-                
-                # get ebay config for max items settings
-                ebay_config = get_ebay_config()
-                
-                # build comparison data using the helper method
-                comparison_data = formatter.build_comparison_data(
-                    idealo_product, 
-                    listings, 
-                    ebay_config.MAX_BESTMATCH_ITEMS,
-                    ebay_config.MAX_LEASTMATCH_ITEMS)
-                
-                logger.info("telegram_comparison_data", 
-                    best_count=len(comparison_data.get('best_matches', [])),
-                    less_relevant_count=len(comparison_data.get('less_relevant_matches', [])),
-                    has_title=bool(comparison_data.get('idealo_product_title'))
-                )
-                
-                message = formatter.format_ebay_results(comparison_data)
-                
-                logger.info("telegram_message_created", 
-                    message_length=len(message) if message else 0,
-                    is_empty=not message or not message.strip(),
-                    first_100_chars=message[:100] if message else "NONE"
-                )
-                
-                # validate message before sending
-                if not message or not message.strip():
-                    logger.error("telegram_message_empty", 
-                        comparison_data=comparison_data,
-                        idealo_product=idealo_product.name
-                    )
-                    message = f"eBay search completed for {idealo_product.name} with {len(listings)} results, but message formatting failed."
-                
-                # send notification
-                if client.send_notification(message):
-                    logger.info("telegram_comparison_sent", product=idealo_product.name, listings_count=len(listings))
-                    print(f"  → Telegram notification sent")
-            else:
-                logger.debug("telegram_not_configured", action="skip_notification")
-                
-        except Exception as e:
-            logger.error("telegram_notification_failed", error=str(e))
-            print(f"  → Telegram notification failed: {e}")
-            # don't fail the whole process if telegram fails
+    # log results for debugging (profit calculation moved to save_to_database)
+    if listings:
+        logger.info("ebay_search_completed", 
+            product=idealo_product.name,
+            listings_count=len(listings)
+        )
+        print(f"  → Found {len(listings)} eBay listings")
+    else:
+        logger.info("no_ebay_listings_found", product=idealo_product.name)
+        print(f"  → No eBay listings found")
     
     return listings
 
@@ -246,6 +198,10 @@ def save_to_database(products: List[IdealoProduct], listings: List[EbayListing])
                     print(f"\nChecking eBay for {len(needs_ebay_check)} products...")
                     ebay_repo = EbayListingRepository(conn)
                     
+                    # import telegram notifier for later use
+                    from src.integrations.telegram.telegram_notifier import TelegramNotifier
+                    telegram_notifier = TelegramNotifier()
+                    
                     for idx, product_info in enumerate(needs_ebay_check, 1):
                         print(f"[{idx}/{len(needs_ebay_check)}] Checking eBay for: {product_info['name'][:50]}... ({product_info['type']})")
                         
@@ -264,14 +220,27 @@ def save_to_database(products: List[IdealoProduct], listings: List[EbayListing])
                                 is_active=product_info.get('is_active', True)
                             )
                         
-                        # use wrapper function with telegram enabled
+                        # get eBay listings (no telegram here)
                         ebay_listings = compare_product_on_ebay(
                             idealo_product=idealo_product,
-                            max_results=10,
-                            send_telegram=True  # enable telegram in production flow
+                            max_results=10
                         )
                         
                         if ebay_listings:
+                            # calculate profitability using ProductComparison
+                            comparison = ProductComparison(
+                                idealo_product=idealo_product,
+                                ebay_listings=ebay_listings
+                            )
+                            comparison.calculate_profitability()
+                            
+                            logger.info("profitability_calculated", 
+                                product=idealo_product.name,
+                                is_profitable=comparison.is_profitable,
+                                potential_profit=comparison.potential_profit,
+                                min_ebay_price=comparison.min_ebay_price
+                            )
+                            
                             # convert EbayListing objects to dictionaries
                             listings_data = [
                                 {
@@ -284,12 +253,31 @@ def save_to_database(products: List[IdealoProduct], listings: List[EbayListing])
                                 for l in ebay_listings
                             ]
                             
-                            # update listings for this product
+                            # save eBay listings to database
                             ebay_repo.update_listings_for_product(
                                 product_info['product_id'],
                                 listings_data
                             )
-                            print(f"  → Found {len(ebay_listings)} eBay listings")
+                            
+                            # save profit information to database
+                            idealo_repo.update_product_profit(
+                                product_id=product_info['product_id'],
+                                potential_profit=comparison.potential_profit,
+                                profit_percentage=comparison.profit_percentage,
+                                is_profitable=comparison.is_profitable,
+                                min_ebay_price=comparison.min_ebay_price
+                            )
+                            
+                            # send telegram notification ONLY if profitable and AFTER saving
+                            if comparison.is_profitable:
+                                telegram_notifier.send_profitable_deal_notification(
+                                    idealo_product=idealo_product,
+                                    ebay_listings=ebay_listings,
+                                    comparison=comparison
+                                )
+                                print(f"  → PROFITABLE! Potential profit: €{comparison.potential_profit}")
+                            else:
+                                print(f"  → Not profitable (profit: €{comparison.potential_profit})")
                         else:
                             # still update timestamp even if no listings found
                             idealo_repo.update_last_ebay_check(product_info['product_id'])

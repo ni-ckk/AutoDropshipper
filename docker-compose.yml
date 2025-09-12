@@ -8,6 +8,8 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - TZ=Europe/Berlin
+      - PGTZ=Europe/Berlin
     ports:
       - "5432:5432"
 

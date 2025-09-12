@@ -36,7 +36,15 @@ class TelegramFormatter:
             # escape HTML special characters to prevent parsing issues
             product_title = str(product_title).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
             
-            message = f"<b>🔎 Scrape Results for:</b> {product_title}\n\n"
+            # get idealo URL if provided
+            idealo_url = results.get('idealo_product_url')
+            if idealo_url:
+                # make the product name a clickable link
+                product_title_with_link = f"<a href='{idealo_url}'>{product_title}</a>"
+            else:
+                product_title_with_link = product_title
+            
+            message = f"<b>🔎 Scrape Results for:</b> {product_title_with_link}\n\n"
 
             if results.get('best_matches'):
                 message += "<b>✅ Best Matches:</b>\n"
@@ -129,6 +137,7 @@ class TelegramFormatter:
             # initialize result structure with guaranteed fields
             result = {
                 'idealo_product_title': f"{product_name} - €{product_price:.2f}",
+                'idealo_product_url': str(idealo_product.source_url) if idealo_product and hasattr(idealo_product, 'source_url') else None,
                 'best_matches': [],
                 'less_relevant_matches': []
             }

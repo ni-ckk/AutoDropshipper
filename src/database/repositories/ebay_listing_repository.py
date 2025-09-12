@@ -35,8 +35,8 @@ class EbayListingRepository(BaseRepository):
         """
         query = """
             INSERT INTO deal_board_ebaylisting
-            (product_id, title, subtitle, price, source_url, image_url, scraped_at)
-            VALUES (%s, %s, %s, %s, %s, %s, NOW());
+            (product_id, title, subtitle, price, source_url, image_url, is_best_match, scraped_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW());
         """
         params = (
             product_id,
@@ -45,6 +45,7 @@ class EbayListingRepository(BaseRepository):
             listing_data["price"],
             listing_data["source_url"],
             listing_data.get("image_url"),
+            listing_data.get("is_best_match", False),  # default to False if not provided
         )
         
         self._execute_query(query, params)
