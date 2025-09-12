@@ -62,10 +62,10 @@ class EbayScraper:
         """
         Search for products on eBay and extract listings.
         
-        Implements the working flow diagram logic:
-        - First attempt without min price filter
-        - If too many/no best matches, retry with min price filter
-        - Select items based on MAX_BESTMATCH_ITEMS and MAX_LEASTMATCH_ITEMS
+        Flow:
+        - Single search with filters applied upfront (min price, sorted by price)
+        - If best matches exist → take MAX_BESTMATCH_ITEMS
+        - If no best matches → take MAX_LEASTMATCH_ITEMS
         
         Args:
             search_query: Product search query
@@ -76,8 +76,7 @@ class EbayScraper:
         """
         logger.info(
             "starting_ebay_search", 
-            query=search_query, 
-            max_results=max_results,
+            query=search_query,
             max_bestmatch=self.config.MAX_BESTMATCH_ITEMS,
             max_leastmatch=self.config.MAX_LEASTMATCH_ITEMS,
             min_price=self.config.EBAY_MIN_PRICE
@@ -85,137 +84,88 @@ class EbayScraper:
         print(f"--- Starting eBay scrape for '{search_query}' ---")
         
         with SB(uc=True, headless=self.config.IS_HEADLESS_EBAY) as sb:
-            is_filtered_by_min_price = False
-            
-            for attempt in range(2):  # max 2 attempts
-                try:
+            try:
+                # build and navigate to search URL with all filters
+                search_url = self._build_search_url(search_query)
+                print(f"\n--- Opening URL: {search_url} ---")
+                logger.debug("navigating_to_search", url=search_url)
+                
+                sb.open(search_url)
+                logger.debug("page_loaded", current_url=sb.get_current_url())
+                time.sleep(2)
+                
+                # handle cookie consent
+                logger.debug("handling_cookie_consent")
+                self.utils.handle_cookie_consent(sb)
+                logger.debug("cookie_consent_handled")
+                time.sleep(1)
+                
+                # analyze search results
+                logger.info("analyzing_search_results")
+                has_no_best_matches, divider_index, item_count = self._analyze_search_results(sb)
+                
+                # two-branch logic
+                if has_no_best_matches or divider_index == -1:
+                    # no best matches found - take least relevant items
                     logger.info(
-                        "search_attempt_started",
-                        attempt=attempt+1,
-                        is_filtered=is_filtered_by_min_price
+                        "no_best_matches_branch",
+                        item_count=item_count,
+                        will_take=min(item_count, self.config.MAX_LEASTMATCH_ITEMS)
                     )
+                    print(f"--- No best matches found. Taking up to {self.config.MAX_LEASTMATCH_ITEMS} items ---")
                     
-                    # build and navigate to search URL
-                    search_url = self._build_search_url(
-                        search_query, 
-                        with_min_price=is_filtered_by_min_price
+                    elements = self._get_search_result_elements(sb)
+                    listings = self._parse_elements(
+                        elements[:self.config.MAX_LEASTMATCH_ITEMS],
+                        is_best_match=False
                     )
-                    print(f"\n--- Opening URL (Attempt #{attempt+1}): {search_url} ---")
-                    logger.debug(
-                        "navigating_to_search", 
-                        url=search_url, 
-                        attempt=attempt+1,
-                        filtered=is_filtered_by_min_price
-                    )
-                    
-                    sb.open(search_url)
-                    logger.debug("page_loaded", current_url=sb.get_current_url())
-                    time.sleep(2)
-                    
-                    # handle cookie consent on first attempt
-                    if attempt == 0:
-                        logger.debug("handling_cookie_consent")
-                        self.utils.handle_cookie_consent(sb)
-                        logger.debug("cookie_consent_handled")
-                    
-                    time.sleep(1)
-                    
-                    # analyze search results
-                    logger.info("analyzing_search_results")
-                    has_no_best_matches, divider_index, item_count = self._analyze_search_results(sb)
-                    best_match_count = divider_index if divider_index != -1 else item_count
                     
                     logger.info(
-                        "search_results_summary",
-                        has_no_best_matches=has_no_best_matches,
-                        divider_index=divider_index,
-                        total_items=item_count,
+                        "search_completed",
+                        branch="no_best_matches",
+                        listings_count=len(listings)
+                    )
+                else:
+                    # best matches exist - take best match items
+                    best_match_count = divider_index if divider_index > 0 else item_count
+                    logger.info(
+                        "best_matches_branch",
                         best_match_count=best_match_count,
-                        least_match_count=item_count - best_match_count if divider_index != -1 else 0
+                        will_take=min(best_match_count, self.config.MAX_BESTMATCH_ITEMS)
+                    )
+                    print(f"--- Best matches found. Taking up to {self.config.MAX_BESTMATCH_ITEMS} items ---")
+                    
+                    elements = self._get_search_result_elements(sb)
+                    listings = self._parse_elements(
+                        elements[:self.config.MAX_BESTMATCH_ITEMS],
+                        is_best_match=True
                     )
                     
-                    # branch 1: no best matches found
-                    if has_no_best_matches:
-                        logger.info("branch_no_best_matches_selected")
-                        should_retry, listings = self._process_no_best_matches(
-                            sb, is_filtered_by_min_price
-                        )
-                        if should_retry:
-                            logger.info("retrying_with_filter", reason="no_best_matches")
-                            is_filtered_by_min_price = True
-                            continue
-                        logger.info(
-                            "search_completed", 
-                            branch="no_best_matches",
-                            listings_count=len(listings)
-                        )
-                        return listings
-                    
-                    # branch 2: too many best matches
-                    elif best_match_count >= self.config.MAX_BESTMATCH_ITEMS:
-                        logger.info(
-                            "branch_many_best_matches_selected",
-                            best_match_count=best_match_count,
-                            threshold=self.config.MAX_BESTMATCH_ITEMS
-                        )
-                        should_retry, listings = self._process_many_best_matches(
-                            sb, best_match_count, is_filtered_by_min_price
-                        )
-                        if should_retry:
-                            logger.info("retrying_with_filter", reason="too_many_best_matches")
-                            is_filtered_by_min_price = True
-                            continue
-                        logger.info(
-                            "search_completed",
-                            branch="many_best_matches", 
-                            listings_count=len(listings)
-                        )
-                        return listings
-                    
-                    # branch 3: mixed matches (fewer best matches than limit)
-                    else:
-                        logger.info(
-                            "branch_mixed_matches_selected",
-                            best_match_count=best_match_count,
-                            threshold=self.config.MAX_BESTMATCH_ITEMS
-                        )
-                        listings = self._process_mixed_matches(sb, divider_index)
-                        logger.info(
-                            "search_completed",
-                            branch="mixed_matches",
-                            listings_count=len(listings)
-                        )
-                        return listings
-                    
-                except Exception as e:
-                    logger.error(
-                        "search_attempt_failed",
-                        attempt=attempt+1,
-                        error=str(e),
-                        error_type=type(e).__name__,
-                        is_last_attempt=(attempt == 1)
+                    logger.info(
+                        "search_completed",
+                        branch="best_matches",
+                        listings_count=len(listings)
                     )
-                    if attempt == 1:  # last attempt
-                        logger.error("ebay_search_failed", error=str(e))
-                        raise ScrapingError("eBay search failed", str(e))
-                    else:
-                        logger.warning("ebay_search_attempt_failed", attempt=attempt+1, error=str(e))
-                        continue
-            
-            # should not reach here
-            logger.error("unexpected_search_flow_end")
-            return []
+                
+                return listings
+                
+            except Exception as e:
+                logger.error(
+                    "ebay_search_failed",
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+                raise ScrapingError("eBay search failed", str(e))
     
-    def _build_search_url(self, query: str, with_min_price: bool = False) -> str:
+    def _build_search_url(self, query: str) -> str:
         """
-        Build eBay search URL from query.
+        Build eBay search URL from query with all filters applied.
         
         Args:
             query: Search query string
-            with_min_price: Whether to include minimum price filter
             
         Returns:
-            Complete eBay search URL
+            Complete eBay search URL with filters
         """
         from urllib.parse import urlencode
         
@@ -225,11 +175,9 @@ class EbayScraper:
             "_sacat": "0",
             "LH_PrefLoc": "6",  # Germany
             "LH_BIN": "1",      # Buy It Now only
-            "_sop": "15"        # Sort by price + shipping: lowest first
+            "_sop": "15",       # Sort by price + shipping: lowest first
+            "_udlo": str(self.config.EBAY_MIN_PRICE)  # always apply min price filter
         }
-        
-        if with_min_price:
-            params["_udlo"] = str(self.config.EBAY_MIN_PRICE)
         
         return f"https://www.ebay.de/sch/i.html?{urlencode(params)}"
     
@@ -348,217 +296,6 @@ class EbayScraper:
         )
         
         return has_no_best_matches, divider_index, item_count
-    
-    def _process_no_best_matches(
-        self, sb, is_filtered_by_min_price: bool
-    ) -> tuple[bool, List[EbayListing]]:
-        """
-        Process case when no best matches are found.
-        
-        Args:
-            sb: SeleniumBase driver instance
-            is_filtered_by_min_price: Whether min price filter is active
-            
-        Returns:
-            Tuple of (should_retry, listings)
-        """
-        print("--- Branch: No best matches found. ---")
-        logger.info(
-            "no_best_matches_branch",
-            is_filtered=is_filtered_by_min_price
-        )
-        
-        if not is_filtered_by_min_price:
-            print("--- Decision: Re-searching with min price filter. ---")
-            logger.info(
-                "retrying_with_min_price_filter",
-                min_price=self.config.EBAY_MIN_PRICE,
-                reason="no_best_matches_without_filter"
-            )
-            return True, []  # retry with filter
-        else:
-            print("--- Decision: Already filtered. Scraping available items. ---")
-            logger.info(
-                "already_filtered_scraping_least_matches",
-                max_items_to_scrape=self.config.MAX_LEASTMATCH_ITEMS
-            )
-            
-            # parse up to MAX_LEASTMATCH_ITEMS
-            elements = self._get_search_result_elements(sb)
-            logger.debug(
-                "search_elements_retrieved",
-                total_elements=len(elements),
-                will_parse=min(len(elements), self.config.MAX_LEASTMATCH_ITEMS)
-            )
-            
-            listings = self._parse_elements(
-                elements[:self.config.MAX_LEASTMATCH_ITEMS],
-                is_best_match=False
-            )
-            
-            logger.info(
-                "no_best_matches_completed",
-                elements_found=len(elements),
-                listings_parsed=len(listings),
-                max_allowed=self.config.MAX_LEASTMATCH_ITEMS
-            )
-            
-            return False, listings
-    
-    def _process_many_best_matches(
-        self, sb, best_match_count: int, is_filtered_by_min_price: bool
-    ) -> tuple[bool, List[EbayListing]]:
-        """
-        Process case when there are too many best matches.
-        
-        Args:
-            sb: SeleniumBase driver instance
-            best_match_count: Number of best matches found
-            is_filtered_by_min_price: Whether min price filter is active
-            
-        Returns:
-            Tuple of (should_retry, listings)
-        """
-        print(f"--- Branch: Found {best_match_count} best matches (>= limit of {self.config.MAX_BESTMATCH_ITEMS}). ---")
-        logger.info(
-            "sufficient_best_matches_branch",
-            count=best_match_count,
-            limit=self.config.MAX_BESTMATCH_ITEMS,
-            is_filtered=is_filtered_by_min_price
-        )
-        
-        if not is_filtered_by_min_price:
-            print("--- Decision: Re-searching with min price filter. ---")
-            logger.info(
-                "retrying_with_min_price_filter",
-                min_price=self.config.EBAY_MIN_PRICE,
-                reason="too_many_best_matches_without_filter",
-                current_count=best_match_count
-            )
-            return True, []  # retry with filter
-        else:
-            print("--- Decision: Already filtered. Scraping best matches only. ---")
-            logger.info(
-                "already_filtered_taking_best_matches_only",
-                will_take=self.config.MAX_BESTMATCH_ITEMS,
-                available=best_match_count
-            )
-            
-            # parse only MAX_BESTMATCH_ITEMS
-            elements = self._get_search_result_elements(sb)
-            logger.debug(
-                "search_elements_retrieved",
-                total_elements=len(elements),
-                will_parse=min(len(elements), self.config.MAX_BESTMATCH_ITEMS)
-            )
-            
-            listings = self._parse_elements(
-                elements[:self.config.MAX_BESTMATCH_ITEMS],
-                is_best_match=True
-            )
-            
-            logger.info(
-                "many_best_matches_completed",
-                elements_found=len(elements),
-                listings_parsed=len(listings),
-                max_allowed=self.config.MAX_BESTMATCH_ITEMS,
-                all_best_matches=True
-            )
-            
-            return False, listings
-    
-    def _process_mixed_matches(
-        self, sb, divider_index: int
-    ) -> List[EbayListing]:
-        """
-        Process case with mixed best and less relevant matches.
-        
-        Args:
-            sb: SeleniumBase driver instance
-            divider_index: Index separating best from less relevant matches
-            
-        Returns:
-            List of parsed eBay listings
-        """
-        best_match_count = divider_index if divider_index != -1 else 0
-        print(f"--- Branch: Found {best_match_count} best matches (< limit). Scraping all. ---")
-        logger.info(
-            "mixed_matches_branch",
-            best_count=best_match_count,
-            taking_best=best_match_count,
-            taking_least=self.config.MAX_LEASTMATCH_ITEMS,
-            divider_index=divider_index
-        )
-        
-        elements = self._get_search_result_elements(sb)
-        logger.debug(
-            "search_elements_for_mixed",
-            total_elements=len(elements),
-            divider_at=divider_index
-        )
-        
-        all_listings = []
-        best_match_parsed = 0
-        least_match_parsed = 0
-        
-        # parse all elements and determine match type for each
-        for i, element in enumerate(elements):
-            # determine if this is a best match
-            is_best_match = (divider_index == -1) or (i < divider_index)
-            
-            try:
-                listing = self.parser.parse_search_result_item(element, is_best_match)
-                if listing:
-                    all_listings.append(listing)
-                    if is_best_match:
-                        best_match_parsed += 1
-                    else:
-                        least_match_parsed += 1
-                    
-                    # log first few items for debugging
-                    if len(all_listings) <= 3:
-                        logger.debug(
-                            "listing_parsed",
-                            index=i,
-                            is_best_match=is_best_match,
-                            title=listing.title[:50] if listing.title else None
-                        )
-            except Exception as e:
-                logger.warning(
-                    "listing_parse_failed",
-                    index=i,
-                    error=str(e),
-                    is_best_match=is_best_match
-                )
-        
-        # split into best and less relevant
-        if divider_index != -1:
-            best_listings = all_listings[:divider_index]
-            other_listings = all_listings[divider_index:divider_index + self.config.MAX_LEASTMATCH_ITEMS]
-            final_listings = best_listings + other_listings
-            
-            logger.info(
-                "mixed_matches_split",
-                best_listings_count=len(best_listings),
-                other_listings_count=len(other_listings),
-                final_count=len(final_listings)
-            )
-        else:
-            final_listings = all_listings
-            logger.info(
-                "no_divider_all_best_matches",
-                total_listings=len(final_listings)
-            )
-        
-        logger.info(
-            "mixed_matches_completed",
-            listings_found=len(final_listings),
-            best_match_parsed=best_match_parsed,
-            least_match_parsed=least_match_parsed,
-            divider_was_present=divider_index != -1
-        )
-        
-        return final_listings
     
     def _parse_elements(
         self, elements: list, is_best_match: bool
