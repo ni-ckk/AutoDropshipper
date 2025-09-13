@@ -3,6 +3,7 @@ Idealo product-specific queries, upserts, and price history.
 """
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -36,23 +37,30 @@ class IdealoProductRepository(BaseRepository):
         results = self._execute_query(query, (source_url,))
         return results[0] if results else None
     
-    def update_product(self, product_id: int, price: Any, discount: Optional[int] = None) -> None:
+    def update_product(self, product_id: int, price: Any, discount: Optional[Any] = None) -> None:
         """
         Update existing product with new price and discount.
         
         Args:
             product_id: Product ID to update
             price: New price value
-            discount: New discount percentage (optional, defaults to 0)
+            discount: New discount value (decimal or percentage)
         """
-        # use 0 as default if discount is None
-        discount_value = discount if discount is not None else 0
+        # convert decimal discount to integer percentage for storage
+        if discount and isinstance(discount, (float, Decimal)):
+            # convert from decimal (0.68) to percentage (68)
+            discount_int = int(discount * 100)
+        elif discount:
+            discount_int = int(discount)
+        else:
+            discount_int = 0
+            
         query = """
             UPDATE deal_board_product
             SET price = %s, discount = %s, is_active = TRUE, updated_at = NOW()
             WHERE id = %s;
         """
-        self._execute_query(query, (price, discount_value, product_id))
+        self._execute_query(query, (price, discount_int, product_id))
         logger.debug("product_updated", product_id=product_id)
     
     def insert_product(self, product_data: Dict[str, Any]) -> Optional[int]:
@@ -67,7 +75,14 @@ class IdealoProductRepository(BaseRepository):
         """
         # match exact Django model fields with updated field names
         # include new profit fields with default values (NULL for calculations, FALSE for is_profitable)
-        # use 0.0 as default for discount if not provided
+        # convert decimal discount to integer percentage for storage
+        discount_value = product_data.get("discount", 0.0)
+        if discount_value and isinstance(discount_value, (float, Decimal)):
+            # convert from decimal (0.68) to percentage (68)
+            discount_int = int(discount_value * 100)
+        else:
+            discount_int = 0
+            
         query = """
             INSERT INTO deal_board_product 
             (name, source_url, image_url, price, discount, is_active, category, 
@@ -80,7 +95,7 @@ class IdealoProductRepository(BaseRepository):
             product_data["source_url"],
             product_data["image_url"],
             product_data["price"],
-            product_data.get("discount", 0.0),  # default to 0.0 if discount not provided
+            discount_int,  # now properly converted to integer percentage
             product_data.get("category", "Unknown")  # use default if not provided
         )
         

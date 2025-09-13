@@ -225,9 +225,9 @@
                     </a>
                 </div>
                 <div class="price-container">
-                    <span class="product-price">€{{ product.latest_price }}</span>
-                    {% if product.discount_percentage %}
-                    <span class="product-discount">-{{ product.discount_percentage }}%</span>
+                    <span class="product-price">€{{ product.price }}</span>
+                    {% if product.discount %}
+                    <span class="product-discount">-{{ product.discount }}%</span>
                     {% endif %}
                 </div>
                 
