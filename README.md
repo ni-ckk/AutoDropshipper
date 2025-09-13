@@ -34,6 +34,8 @@ An automated dropshipping application that scrapes product data from idealo.de, 
 
 ## Quick Start with Docker (Recommended)
 
+### Development Setup
+
 1. **Prerequisites**: Install Docker and Docker Compose
 
 2. **Clone and Setup**:
@@ -57,6 +59,37 @@ docker-compose run webapp uv run python webapp/manage.py migrate
 
 5. **Access the Dashboard**: 
    - Open http://localhost:8000 in your browser
+
+### 🚀 Production Deployment
+
+For production deployment on Linux servers:
+
+1. **Quick Deploy**:
+```bash
+# Clone repository
+git clone <repository-url>
+cd AutoDropshipper
+
+# Configure production environment
+cp .env.production.example .env.production
+# Edit .env.production with your values
+
+# Deploy
+chmod +x deploy.sh
+./deploy.sh
+```
+
+2. **Automated Scheduling** (3x daily with random times):
+```bash
+# Add to crontab
+crontab -e
+# Add these lines:
+0 6 * * * /path/to/AutoDropshipper/scheduler.sh
+0 13 * * * /path/to/AutoDropshipper/scheduler.sh
+0 19 * * * /path/to/AutoDropshipper/scheduler.sh
+```
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed production setup instructions.
 
 ## Usage
 
