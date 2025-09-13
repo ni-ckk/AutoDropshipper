@@ -19,7 +19,18 @@ An automated dropshipping application that scrapes product data from idealo.de, 
 
 # Next, for each gathered product, app will decide if it's potentially profitable...
 
-![ebay_flow_mmd](docs/assets/ebay_flow_mmd.png)
+<img src="docs/assets/ebay_flow_mmd.png" width="50%">
+
+## ...by scraping the page:
+![ebay_flow_gif](docs/assets/ebay_flow.gif)
+
+## If profitable, user receives a notification:
+
+<img src="docs/assets/profitable-notification.png" width="50%">
+
+# Profitable deals are collected on the webapp dashboard:
+
+![profitable-deals-dashboard](docs/assets/web-app-dealboard.png)
 
 ## Quick Start with Docker (Recommended)
 
