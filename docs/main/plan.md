@@ -33,8 +33,8 @@ It should send Telegram notification about profitable products and have an inter
 - [DONE] Telegram notifications
     - basic version exists, but need to reiterate on the format of messages.
 
-- [DONE] Wrap all with Kubernetes.
-    - [DONE] cronjobs for idealo scraper (schedule every N hours to run), as main entry point.
+- [WIP] Wrap all with Kubernetes.
+    - [WIP] cronjobs for idealo scraper (schedule every N hours to run), as main entry point.
 - [] Set django app from debug to production
 Later:
 - [] Feed Gemini with htmls and refactor scraper unit tests
