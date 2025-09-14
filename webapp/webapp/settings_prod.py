@@ -1,8 +1,8 @@
 """
 Django production settings for webapp project.
 
-This file contains production-specific settings that override base settings.
-For deployment on home servers and production environments.
+This file contains production-specific settings for VPS deployment.
+Optimized for public VPS with 4GB RAM and 2 CPUs.
 """
 
 from pathlib import Path
@@ -19,9 +19,11 @@ if not SECRET_KEY:
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-# Allow all hosts for home server (behind router NAT)
-# For public deployment, replace with your domain: ['yourdomain.com', 'www.yourdomain.com']
-ALLOWED_HOSTS = ['*']
+# ALLOWED_HOSTS from environment variable for VPS deployment
+# Example: ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com,your-vps-ip
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
+if not ALLOWED_HOSTS or ALLOWED_HOSTS == ['']:
+    raise ValueError("ALLOWED_HOSTS environment variable must be set for production")
 
 # Application definition
 INSTALLED_APPS = [
@@ -74,6 +76,10 @@ DATABASES = {
         'HOST': os.environ.get('POSTGRES_HOST', 'db'),
         'PORT': '5432',
         'CONN_MAX_AGE': 600,  # persistent connections for better performance
+        'OPTIONS': {
+            'connect_timeout': 10,
+            'options': '-c statement_timeout=30000'  # 30 seconds timeout
+        }
     }
 }
 
@@ -103,45 +109,86 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Security settings for production
+# Media files (if needed in future)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# Security settings for VPS production deployment
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
 
 # Session security
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SAMESITE = 'Strict'
 SESSION_COOKIE_AGE = 1209600  # 2 weeks
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
 # CSRF settings
 CSRF_COOKIE_HTTPONLY = True
-CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Strict'
 
-# For HTTPS deployment (uncomment when using SSL)
-# SECURE_SSL_REDIRECT = True
-# SESSION_COOKIE_SECURE = True
-# CSRF_COOKIE_SECURE = True
-# SECURE_HSTS_SECONDS = 31536000
-# SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-# SECURE_HSTS_PRELOAD = True
+# CSRF trusted origins - dynamically built from ALLOWED_HOSTS
+CSRF_TRUSTED_ORIGINS = []
+for host in ALLOWED_HOSTS:
+    if host and not host.startswith('*'):
+        # Add both http and https variants (https will be primary after SSL setup)
+        CSRF_TRUSTED_ORIGINS.extend([
+            f"http://{host}",
+            f"https://{host}"
+        ])
+
+# Additional security headers
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
+# HTTPS/SSL Security Settings
+# These will be enabled after SSL certificate is configured
+USE_SSL = os.environ.get('USE_SSL', 'false').lower() == 'true'
+
+if USE_SSL:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Logging configuration
+# Logging configuration optimized for VPS
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {message}',
+            'format': '[{levelname}] {asctime} {module} {process:d} {thread:d} {message}',
             'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'simple': {
+            'format': '[{levelname}] {message}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
         },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
+        },
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': '/var/log/django/autodropshipper.log',
+            'maxBytes': 1024 * 1024 * 15,  # 15MB
+            'backupCount': 10,
+            'formatter': 'verbose',
+            'filters': ['require_debug_false'],
         },
     },
     'root': {
@@ -150,9 +197,37 @@ LOGGING = {
     },
     'loggers': {
         'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
+            'handlers': ['console', 'file'] if os.path.exists('/var/log/django') else ['console'],
+            'level': os.environ.get('DJANGO_LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console', 'file'] if os.path.exists('/var/log/django') else ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': ['console', 'file'] if os.path.exists('/var/log/django') else ['console'],
+            'level': 'WARNING',
             'propagate': False,
         },
     },
 }
+
+# Performance optimizations for 2 CPU VPS
+# Gunicorn workers will be set to 3 (2 × CPU + 1) in docker-compose
+
+# Cache configuration (can be extended with Redis later)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+        'OPTIONS': {
+            'MAX_ENTRIES': 1000,
+        }
+    }
+}
+
+# File upload limits
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB
