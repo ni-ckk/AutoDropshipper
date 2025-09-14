@@ -242,7 +242,8 @@ main() {
     # Start all services
     print_step "Starting all services..."
     if [ "$VPS_MODE" = true ]; then
-        docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+        # In production, only start the production services (not dev services)
+        docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d db webapp-prod nginx
     else
         docker-compose up -d webapp
     fi

@@ -41,8 +41,7 @@ services:
     volumes:
       - ./webapp:/app/webapp
       - static_volume:/app/webapp/staticfiles
-    ports:
-      - "8000:8000"
+    # Port is exposed via nginx in production, not directly
     environment:
       - SECRET_KEY=${SECRET_KEY}
       - DJANGO_SETTINGS_MODULE=webapp.settings_prod
