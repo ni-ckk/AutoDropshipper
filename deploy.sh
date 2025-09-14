@@ -99,6 +99,9 @@ setup_ssl() {
         --email "admin@$DOMAIN" \
         --no-eff-email
     
+    # Create certs directory if it doesn't exist
+    mkdir -p ./nginx/certs
+    
     # Copy certificates to nginx directory
     sudo cp /etc/letsencrypt/live/$DOMAIN/fullchain.pem ./nginx/certs/
     sudo cp /etc/letsencrypt/live/$DOMAIN/privkey.pem ./nginx/certs/
