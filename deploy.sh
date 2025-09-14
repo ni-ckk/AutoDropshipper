@@ -183,7 +183,7 @@ main() {
     
     # Pull latest changes from git
     print_step "Pulling latest changes from git..."
-    git pull origin main || git pull origin master || print_warning "Could not pull from git, continuing with local version"
+    git pull origin release/production-ready || print_warning "Could not pull from git, continuing with local version"
     
     # Stop existing containers
     print_step "Stopping existing containers..."

@@ -43,6 +43,8 @@ services:
       file: docker-compose.yml
       service: webapp-prod
     container_name: autodropshipper_webapp
+    env_file:
+      - .env
     expose:
       - "8000"  # Internal port only, not exposed externally
     ports: []   # Remove any direct port exposure
@@ -78,6 +80,8 @@ services:
       file: docker-compose.yml
       service: db
     container_name: autodropshipper_db
+    env_file:
+      - .env
     networks:
       - app-network
     ports: []  # Remove external port exposure
@@ -108,6 +112,8 @@ services:
       file: docker-compose.yml
       service: production
     container_name: autodropshipper_scraper
+    env_file:
+      - .env
     networks:
       - app-network
     deploy:
