@@ -2,6 +2,8 @@
 
 An automated dropshipping application that scrapes product data from idealo.de, compares prices with eBay listings, and identifies profitable reselling opportunities.
 
+Deals available at: https://autodropshipper.mooo.com:8443/
+
 ## Tech Stack
 
 - **Python 3.10+**
