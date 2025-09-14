@@ -171,6 +171,11 @@ main() {
         cp .env.production .env
         source .env
         
+        # Create necessary directories
+        mkdir -p logs/django
+        mkdir -p nginx/certs
+        print_info "Created necessary directories for logs and certificates"
+        
         # Check VPS resources
         check_vps_resources
     else

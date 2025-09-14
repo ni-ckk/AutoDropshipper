@@ -45,6 +45,9 @@ services:
     container_name: autodropshipper_webapp
     env_file:
       - .env
+    volumes:
+      - ./logs/django:/var/log/django
+      - static_volume:/app/webapp/staticfiles
     expose:
       - "8000"  # Internal port only, not exposed externally
     ports: []   # Remove any direct port exposure
